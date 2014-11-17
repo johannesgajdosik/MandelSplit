@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="about_dialog_title">About MandelSplit</string>
+    <string name="about_dialog_msg">
+Author and Copyright: Johannes Gajdosik, 2014\n\n
+
+<b>MandelSplit</b>: A graphical visualizer for the Mandelbrot set
+(see <a href="http://en.wikipedia.org/wiki/Mandelbrot_set">http://en.wikipedia.org/wiki/Mandelbrot_set</a>)
+which aims to be fast and deep.\n\n
++deep: IEEE754 64bit floating point artithmetic, maximum number of iterations &gt; 1000000.\n
++fast: uses all processor cores, avoids recalculation and unnecessary calculation of black pixels whenever possible.\n\n
+
+That implies it will <b><i>drain your battery</i></b>.
+By the way: <b><i>calculation will continue while the program is in the background</i></b>.\n\n
+
+This is free software, meaning you do not have to pay, and it is free of ads,
+malware, fishy permissions, in-app purchase and so on.
+I plan to release it under GPL license later, but up to now I was too lazy for
+setting up the repository.\n\n
+
+Help, contributions and feedback is always welcome, especially:\n
++Suggestions and/or design and/or code, especially for user interface\n
++Vectorized 64bit calculation code for arm architecture - I am unsure if this is even possible\n
++positive reviews on google play\n\n
+
+You can also tell me what additional features you would like to see, like:\n
+*higher precision arithmethic (meaning you will be able to zoom in even more)\n
+*Julia set\n\n
+
+Do not hesitate to send me an email.\n\n
+
+Yours,\n
+Johannes Gajdosik
+
+    </string>
+    <string name="help_dialog_msg">
+Any settings can be changed even while calculation is running:\n\n
+
+Drag/Pinch/Spread/Turn to choose what you want to see.
+Turning (aka Rotation) must be enabled in the settings.\n\n
+
+Longpress or tap (or press the Menu button on Android 2.3)
+to bring up the\n<b>Settings Dialog</b>:\nHere you can change the
+maximum number of iterations up to 1048576.
+If you have chosen this value too high, you can always press
+\"minimize max iter\" in the dialog. This will set the value to 1+ the maximum value
+of all non-black pixels - and hereby give nicer colors.
+
+
+
+    </string>
+</resources>
+

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+        package="gajdosik.johannes.MandelSplit"
+        android:versionCode="2"
+        android:versionName="0.1.2">
+    <!-- Android 2.3 -->
+    <uses-sdk android:minSdkVersion="9" android:targetSdkVersion="14" />
+    <uses-feature android:glEsVersion="0x00020000" />
+    <uses-feature android:name="android.hardware.touchscreen.multitouch.distinct" />
+    <application android:label="MandelSplit"
+                 android:icon="@drawable/ic_launcher"
+                 android:hasCode="true"
+                 android:debuggable="false">
+        <activity android:name="MyNativeActivity"
+                  android:screenOrientation="landscape" 
+                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+                  android:configChanges="orientation|keyboardHidden">
+            <!-- Tell NativeActivity the name of our .so -->
+            <meta-data android:name="android.app.lib_name"
+                       android:value="mandel-split" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest> 
