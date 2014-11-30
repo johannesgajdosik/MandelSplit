@@ -27,6 +27,18 @@ adb logcat mandel-split:D *:S DEBUG:I
 
 ~/android/android-ndk-r9/ndk-build -j8 && ant debug && adb install -r bin/MandelSplit-debug.apk && adb logcat mandel-split:D *:S
 
+Release:
+~/android/android-ndk-r9/ndk-build -j8
+ant release
+jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+-keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
+bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release
+rm bin/MandelSplit-0.1.1.apk
+~/android/android-sdk-linux/tools/zipalign -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.1.apk
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.1.apk
+adb install -r bin/MandelSplit-0.1.1.apk
+
+
 */
 
 #include "MyNativeActivity.H"
@@ -295,6 +307,7 @@ public:
       void *savedState,size_t savedStateSize);
 private:
   ~MNA(void);
+  void initializeFont(const char *font_file,float font_size);
   void *onSaveInstanceState(size_t &outSize);
   int32_t onInputEvent(AInputEvent *event);
   void maxIterChanged(int x);
@@ -315,15 +328,19 @@ private:
   EGLContext context;
   GLuint program;
   GLuint contents_texture;
-  GLuint lookup_texture;
+  GLint uniform_loc_factors;
 
   int pointer_id[2];
   Vector<float,2> pointer_2d[2];
   Vector<double,2> drag_start_pos;
   double drag_start_scale;
   float drag_start_distanceq;
+  int max_iter_slider_value;
   MandelDrawer mandel_drawer;
   GlunaticUI::Font font;
+  int64_t tap_start_time;
+  Vector<float,2> tap_start_pos;
+  bool tap_moved;
   bool draw_once;
   bool enable_display_info;
 };
@@ -335,23 +352,27 @@ void ANativeActivity_onCreate(ANativeActivity *activity,
 }
 }
 
-MNA::MNA(ANativeActivity *activity,
-         void *savedState,size_t savedStateSize)
-    :MyNativeActivity(activity),program(0) {
-  draw_once = false;
-  enable_display_info = true;
-  const char *font_file = "DejaVuSans.ttf";
+void MNA::initializeFont(const char *font_file,float font_size) {
   AAsset *asset = AAssetManager_open(getAssetManager(),
                                      font_file,AASSET_MODE_UNKNOWN);
   if (asset) {
     font.initialize(font_file,
                     AAsset_getBuffer(asset),AAsset_getLength(asset),
-                    14.f);
+                    font_size);
     AAsset_close(asset);
   } else {
     cout << "FATAL: Asset not found: " << font_file << endl;
     abort();
   }
+}
+
+MNA::MNA(ANativeActivity *activity,
+         void *savedState,size_t savedStateSize)
+    :MyNativeActivity(activity),program(0) {
+  max_iter_slider_value = 0;
+  draw_once = false;
+  enable_display_info = true;
+  initializeFont("DejaVuSans.ttf",floorf(sqrtf(getScreenHeight())));
 
 #define FLAG_KEEP_SCREEN_ON 0x80
   addWindowFlags(FLAG_KEEP_SCREEN_ON);
@@ -506,11 +527,17 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
               pointer_2d[1][1] = AMotionEvent_getY(event,p_index);
               startMouseDrag();
             }
+            tap_moved = true;
+//            cout << "no tap because of second pointer" << endl;
           } else {
             pointer_id[0] = p_id;
             pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
             pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
             startMouseDrag();
+            tap_moved = false;
+            tap_start_time = AMotionEvent_getEventTime(event);
+            tap_start_pos = pointer_2d[0];
+//            cout << "tap started: " << tap_start_pos << endl;
           }
         } break;
         case AMOTION_EVENT_ACTION_UP:
@@ -521,9 +548,19 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
           const int32_t p_id
             = AMotionEvent_getPointerId(event,p_index);
           if (p_id == pointer_id[0]) {
+            if (pointer_id[1] < 0 && !tap_moved &&
+                AMotionEvent_getEventTime(event) <
+                  tap_start_time + 600*1000000LL) {
+                  showMaxIterDialog(mandel_drawer.getMaxIter(),
+                                    mandel_drawer.getCenterRe(),
+                                    mandel_drawer.getCenterIm(),
+                                    mandel_drawer.XYToReImScale(),
+                                    enable_display_info);
+            } else {
+              pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
+              pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
+            }
             pointer_id[0] = -1;
-            pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
-            pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
             finishMouseDrag();
           } else if (p_id == pointer_id[1]) {
             pointer_id[1] = -1;
@@ -537,14 +574,20 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
           for (size_t p_index=0;p_index<pointer_count;p_index++) {
             const int32_t p_id = AMotionEvent_getPointerId(event,p_index);
             if (p_id == pointer_id[0]) {
-              pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
-              pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
+              const Vector<float,2> curr_pos(AMotionEvent_getX(event,p_index),
+                                             AMotionEvent_getY(event,p_index));
+              if (tap_moved) {
+                pointer_2d[0] = curr_pos;
+              } else if ((curr_pos-tap_start_pos).length2() >= 1.4f) {
+                tap_moved = true;
+                pointer_2d[0] = curr_pos;
+              }
             } else if (p_id == pointer_id[1]) {
               pointer_2d[1][0] = AMotionEvent_getX(event,p_index);
               pointer_2d[1][1] = AMotionEvent_getY(event,p_index);
             }
           }
-          performMouseDrag();
+          if (tap_moved) performMouseDrag();
         } break;
       }
     } return 1; // handled
@@ -600,23 +643,19 @@ void MNA::performMouseDrag(void) {
 }
 
 void MNA::maxIterChanged(int x) {
-//  double h = x*1e-6;
-//  h *= h;
-//  int max_iter = 125+(int)floor(1e6*h*h);
-//cout << "maxIterChanged: " << x << endl;
-  mandel_drawer.setMaxIter(x);
-  draw_once = true;
+  max_iter_slider_value = x;
 }
 
 void MNA::maxIterStartStop(int start_stop) {
   if (!start_stop) {
+    mandel_drawer.setMaxIter(max_iter_slider_value);
     mandel_drawer.startRecalc();
   }
 }
 
 
 
-static const char vertex_shader[] = 
+static const char vertex_shader[] =
     "precision highp float;\n"
     "attribute vec4 a_position;\n"
     "attribute vec2 a_texcoor;\n"
@@ -625,26 +664,44 @@ static const char vertex_shader[] =
     "  gl_Position = a_position;\n"
     "  v_texcoor = a_texcoor;\n"
     "}\n";
-
-static const char fragment_shader[] = 
-//    "precision mediump float;\n"
-    "precision highp float;\n"
+/*
+static const char fragment_shader1[] =
+    "precision mediump float;\n"
+//    "precision lowp float;\n"
     "uniform sampler2D contents_texture;\n"
-    "uniform sampler2D lookup_texture;\n"
+    "uniform vec4 factors;\n"
     "varying vec2 v_texcoor;\n"
     "void main() {\n"
-    "  vec2 v = texture2D(contents_texture,v_texcoor).rg;\n"
-    "  gl_FragColor = texture2D(lookup_texture,v);\n"
-//    "  gl_FragColor = vec4(1.0,0.5,0.2,0.0);\n"
+    "  float v = dot(vec3(1.0,256.0,65536.0),"
+                    "texture2D(contents_texture,v_texcoor).rgb);\n"
+    "  gl_FragColor = (v>=factors.a) ? vec4(0.0,0.0,0.0,0.0)"
+                                   " : fract(v*factors);\n"
     "}\n";
-
+*/
+static const char fragment_shader[] =
+    "precision mediump float;\n"
+//    "precision lowp float;\n"
+    "uniform sampler2D contents_texture;\n"
+    "uniform vec4 factors;\n"
+    "varying vec2 v_texcoor;\n"
+    "void main() {\n"
+    "  const vec4 potences = vec4(4.0/256.0,4.0,4.0*256.0,0.0);\n"
+    "  vec4 v = texture2D(contents_texture,v_texcoor);\n"
+    "  float val = dot(potences,v);\n"
+    "  v *= potences;\n"
+    "  gl_FragColor = (val >= factors.a)\n"
+                  " ? vec4(0.0,0.0,0.0,0.0)\n"
+                  " : fract(fract(v.rrra*factors)"
+                          "+fract(v.ggga*factors)"
+                          "+fract(v.bbba*factors));\n"
+    "}\n";
 
 
 void MNA::printText(float pos_x,float pos_y,const char *text) const {
   const float size_x = font.getWidth(text);
   const float size_y = font.getHeight();
   font.render(pos_x,pos_y,size_x,size_y,
-              text,RGBA_TO_COLOR(255,255,255,0));
+              text,RGBA_TO_COLOR(192,192,192,192));
 }
 
 static const GLfloat texture_coordinates[8] = {
@@ -691,9 +748,6 @@ void MNA::main(void) {
   const GLuint texcoor_location = 1;
   if (program) {
     glUseProgram(program);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D,lookup_texture);
-    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D,contents_texture);
   } else {
     mandel_drawer.initialize(width,height);
@@ -701,6 +755,79 @@ void MNA::main(void) {
     IntrusivePtr<GlResourceCache> resource_cache = GlResourceCache::create();
     font.initializeDrawing(*resource_cache);
     PrintGLString("Version", GL_VERSION);
+
+
+    int range[2],precision;
+    glGetShaderPrecisionFormat(GL_VERTEX_SHADER,GL_LOW_FLOAT,
+                               range,&precision);
+    cout << "VERTEX_SHADER,LOW_FLOAT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_VERTEX_SHADER,GL_MEDIUM_FLOAT,
+                               range,&precision);
+    cout << "VERTEX_SHADER,MEDIUM_FLOAT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_VERTEX_SHADER,GL_HIGH_FLOAT,
+                               range,&precision);
+    cout << "VERTEX_SHADER,HIGH_FLOAT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_VERTEX_SHADER,GL_LOW_INT,
+                               range,&precision);
+    cout << "VERTEX_SHADER,LOW_INT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_VERTEX_SHADER,GL_MEDIUM_INT,
+                               range,&precision);
+    cout << "VERTEX_SHADER,MEDIUM_INT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_VERTEX_SHADER,GL_HIGH_INT,
+                               range,&precision);
+    cout << "VERTEX_SHADER,HIGH_INT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+
+
+    glGetShaderPrecisionFormat(GL_VERTEX_SHADER,GL_LOW_FLOAT,
+                               range,&precision);
+    cout << "FRAGMENT_SHADER,LOW_FLOAT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_FRAGMENT_SHADER,GL_MEDIUM_FLOAT,
+                               range,&precision);
+    cout << "FRAGMENT_SHADER,MEDIUM_FLOAT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_FRAGMENT_SHADER,GL_HIGH_FLOAT,
+                               range,&precision);
+    cout << "FRAGMENT_SHADER,HIGH_FLOAT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_FRAGMENT_SHADER,GL_LOW_INT,
+                               range,&precision);
+    cout << "FRAGMENT_SHADER,LOW_INT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_FRAGMENT_SHADER,GL_MEDIUM_INT,
+                               range,&precision);
+    cout << "FRAGMENT_SHADER,MEDIUM_INT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+    glGetShaderPrecisionFormat(GL_FRAGMENT_SHADER,GL_HIGH_INT,
+                               range,&precision);
+    cout << "FRAGMENT_SHADER,HIGH_INT"
+            ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
+
+/*
+returns the range and precision for different numeric formats supported by the
+shader compiler. shadertype must be VERTEX_SHADER or FRAGMENT_SHADER.
+precisiontype must be one of LOW_FLOAT, MEDIUM_FLOAT, HIGH_FLOAT, LOW_-
+INT, MEDIUM_INT or HIGH_INT. range points to an array of two integers in which
+encodings of the format’s numeric range are returned. If min and max are the
+smallest and largest values representable in the format, then the values returned are
+defined to be
+                             range[0] = log2 (|min|)
+                             range[1] = log2 (|max|)
+precision points to an integer in which the log2 value of the number of bits of
+precision of the format is returned. If the smallest representable value greater than
+1 is 1 + , then *precision will contain −log2 ( ) , and every value in the range
+                                [−2range[0] , 2range[1] ]
+can be represented to at least one part in 2∗precision . For example, an IEEE single-
+precision floating-point format would return range[0] = 127, range[1] = 127,
+and ∗precision = 23, while a 32-bit twos-complement integer format would re-
+turn range[0] = 31, range[1] = 30, and ∗precision = 0.
+*/
 
     program = CreateUnlinkedProgram(vertex_shader,fragment_shader);
     if (!program) {
@@ -714,30 +841,16 @@ void MNA::main(void) {
       cout << "linking failed." << endl;
       ABORT();
     }
-    const GLuint uniform_loc_contents_texture
-                   = glGetUniformLocation(program,"contents_texture");
-    const GLuint uniform_loc_lookup_texture
-                   = glGetUniformLocation(program,"lookup_texture");
+    const GLint uniform_loc_contents_texture
+                  = glGetUniformLocation(program,"contents_texture");
+    uniform_loc_factors = glGetUniformLocation(program,"factors");
     CheckGlError("glGetUniformLocation");
 
     glUseProgram(program);
     glUniform1i(uniform_loc_contents_texture,0); // texture unit 0
-    glUniform1i(uniform_loc_lookup_texture,1); // texture unit 1
     CheckGlError("glUseProgram");
 
-    glGenTextures(1,&lookup_texture);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D,lookup_texture);
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D,0,GL_RGB,256,256,
-                 0,GL_RGB,GL_UNSIGNED_BYTE,0);
-    CheckGlError("lookup_texture");
-
     glGenTextures(1,&contents_texture);
-    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D,contents_texture);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
@@ -792,6 +905,16 @@ CheckGlError("main 100");
     CheckGlError("glClear");
     glDisable(GL_BLEND);
 
+    {
+      const float h = 1.f/cbrtf(mandel_drawer.getMaxIter());
+      const GLfloat color_factors[4] = {
+        64.f*256.f/mandel_drawer.getMaxIter(),
+        64.f*256.f*h*h,
+        64.f*256.f*h,
+        (mandel_drawer.getMaxIter()-0.5)*(1.f/(64.f*255.9f))
+      };
+      glUniform4fv(uniform_loc_factors,1,color_factors);
+    }
     glEnableVertexAttribArray(position_location);
     glEnableVertexAttribArray(texcoor_location);
     GLfloat entire_screen[8];
@@ -804,26 +927,35 @@ CheckGlError("main 100");
     CheckGlError("glDrawArrays");
     glDisableVertexAttribArray(texcoor_location);
     glDisableVertexAttribArray(position_location);
-    if (enable_display_info) {
+
+    const float progress = mandel_drawer.getProgress();
+    if (enable_display_info || progress < 1.f) {
       font.prepareDrawing(width,height,GlunaticUI::mode_portrait);
       glEnable(GL_BLEND);
       glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
-      char tmp[128];
-      snprintf(tmp,sizeof(tmp),"max iter: %d",
-               mandel_drawer.getMaxIter());
-      printText(10,50,tmp);
-      const double pixel_size = mandel_drawer.XYToReImScale();
-      snprintf(tmp,sizeof(tmp),"size: %4.2e x %4.2e",
-               width*pixel_size,
-               height*pixel_size);
-      printText(10,30,tmp);
-      const int prec = -(int)floor(log10(pixel_size));
-      snprintf(tmp,sizeof(tmp),"center: %*.*f +i* %*.*f",
-               prec+2,prec,
-               mandel_drawer.getCenterRe(),
-               prec+2,prec,
-               mandel_drawer.getCenterIm());
-      printText(10,10,tmp);
+      if (enable_display_info) {
+        const float h = floorf(1.2f*font.getHeight());
+        char tmp[128];
+        snprintf(tmp,sizeof(tmp),"max iter: %d",
+                 mandel_drawer.getMaxIter());
+        printText(10,6+2*h,tmp);
+        const double pixel_size = mandel_drawer.XYToReImScale();
+        snprintf(tmp,sizeof(tmp),"size: %4.2e x %4.2e",
+                 width*pixel_size,
+                 height*pixel_size);
+        printText(10,6+h,tmp);
+        const int prec = -(int)floor(log10(pixel_size));
+        snprintf(tmp,sizeof(tmp),"center: %*.*f +i* %*.*f",
+                 prec+2,prec,
+                 mandel_drawer.getCenterRe(),
+                 prec+2,prec,
+                 mandel_drawer.getCenterIm());
+        printText(10,6,tmp);
+      }
+      if (progress < 1.f) {
+        font.rectangle(0,height*0.95f,width*progress,height*0.05f,
+                       RGBA_TO_COLOR(128,96,32,192));
+      }
       font.finishDrawing();
       glBindTexture(GL_TEXTURE_2D,contents_texture);
       glUseProgram(program);

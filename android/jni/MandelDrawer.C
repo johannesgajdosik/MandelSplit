@@ -25,18 +25,19 @@
 
 #include "GLee.h"
 
-#include <math.h>
-
 #include <unistd.h> // sysconf
 
 #include <fstream>
+
+void CheckGlError(const char *description);
 
 static const double default_center_x = -0.75;
 static const double default_center_y = 0;
 static const double default_size_xy = 2.5;
 static const int default_max_iter = 512;
 
-static int GetNrOfProcessors(void) {
+static
+int GetNrOfProcessors(void) {
   {
     const char *const fname = "/sys/devices/system/cpu/possible";
     std::ifstream i(fname);
@@ -74,6 +75,9 @@ static int GetNrOfProcessors(void) {
   return nr_of_processors;
 }
 
+
+
+
 MandelDrawer::MandelDrawer(void)
              :threads(new ThreadPool(GetNrOfProcessors())),
               image(0),
@@ -83,7 +87,28 @@ MandelDrawer::MandelDrawer(void)
               max_iter(default_max_iter),
               new_parameters(true),
               new_max_iter(true),
+              new_size_xy(true),
               was_working_last_time(false) {
+}
+
+void MandelDrawer::reset(void) {
+  reset(default_center_x,default_center_y,default_size_xy,default_max_iter);
+}
+
+void MandelDrawer::reset(double center_re,double center_im,double size_re_im,
+                         unsigned int max_iter) {
+  if (center_x != center_re ||
+      center_y != center_im) {
+    center_x = center_re;
+    center_y = center_im;
+    new_parameters = true;
+  }
+  if (size_xy != size_re_im) {
+    size_xy = size_re_im;
+    new_parameters = true;
+    new_size_xy = true;
+  }
+  setMaxIter(max_iter);
 }
 
 void MandelDrawer::initialize(int width,int height) {
@@ -104,40 +129,24 @@ void *MandelDrawer::getImageData(void) const {
   return image->data;
 }
 
-int MandelDrawer::getMaxIter(void) const {
+unsigned int MandelDrawer::getMaxIter(void) const {
   return max_iter;
 }
 
-void MandelDrawer::reset(void) {
-  if (center_x != default_center_x ||
-      center_y != default_center_y ||
-      size_xy != default_size_xy) {
-    center_x = default_center_x;
-    center_y = default_center_y;
-    size_xy = default_size_xy;
+void MandelDrawer::sizeChanged(int w,int h) {
+  if (w != width || h != height) {
+    width = w;
+    height = h;
+    new_parameters = true;
+    new_size_xy = true;
   }
-  setMaxIter(default_max_iter);
 }
 
-void MandelDrawer::reset(double center_re,double center_im,double size_re_im,
-                         int max_iter) {
-  if (center_x != center_re ||
-      center_y != center_im ||
-      size_xy != size_re_im) {
-    center_x = center_re;
-    center_y = center_im;
-    size_xy = size_re_im;
-  }
-  setMaxIter(max_iter);
-}
-
-void MandelDrawer::setMaxIter(int n) {
-  if (n > 0x10000) {
-    if (n > 0x100000) {
-      n = 0x100000;
-    } else {
-      n = n - (n&0xFFFF);
-    }
+void MandelDrawer::setMaxIter(unsigned int n) {
+  if (n > 0xFFFFFF) {
+    n = 0xFFFFFF;
+  } else if (n < 8) {
+    n = 8;
   }
   if (max_iter != n) {
     max_iter = n;
@@ -171,40 +180,29 @@ void MandelDrawer::fitReIm(const Vector<float,2> &screen_pos,
     center_x *= h;
     center_y *= h;
   }
+  center_x = d_re_im * floor(0.5 + center_x / d_re_im);
+  center_y = d_re_im * floor(0.5 + center_y / d_re_im);
 }
 
 void MandelDrawer::fitReIm(const Vector<float,2> &screen_pos,
                            const Vector<double,2> &re_im_pos,
                            double scale) {
   if (scale < 1e-16) scale = 1e-16;
-  size_xy = scale * ((width<height)?width:height);
-  if (size_xy > 4.0) size_xy = 4.0;
+  scale *= ((width<height)?width:height);
+  if (scale > 4.0) scale = 4.0;
+  if (size_xy != scale) {
+    size_xy = scale;
+    new_size_xy = true;
+  }
   fitReIm(screen_pos,re_im_pos);
 }
 
 void MandelDrawer::getOpenGLScreenCoordinates(float coor[8]) const {
-/*
-    texture:
-  image->start_re
-  image->start_im
-  image->d_re_im
-    should be:
-  re_im_pos,d_re_im = XYToReImScale();
+  const float scale = XYToReImScale();
+  const float factor =  image->d_re_im / scale;
 
-wohin am Bildschirm soll (image->start_re und
-  image->start_re+{width,height}*image->d_re_im
-
-(image->start_re-center_x)/XYToReImScale() + 0.5*width= left
-(image->start_re+width*image->d_re_im-center_x)/XYToReImScale() + 0.5*width= right
-coor[0] = 2*left/width-1 = 2*(image->start_re-center_x)/(width*XYToReImScale())
-coor[2] = 2*right/width-1 = 2*(image->start_re+width*image->d_re_im-center_x)/(width*XYToReImScale())
-coor[2]-coor[0] = 2*image->d_re_im/XYToReImScale()
-*/
-
-  const float factor =  image->d_re_im / XYToReImScale();
-
-  coor[0] = 2.f*(image->start_re-center_x)/(width*XYToReImScale());
-  coor[1] = 2.f*(image->start_im-center_y)/(height*XYToReImScale());
+  coor[0] = 2.f*(image->start_re-center_x)/(width*scale);
+  coor[1] = 2.f*(image->start_im-center_y)/(height*scale);
   coor[2] = coor[0]+2.f*factor;
   coor[5] = coor[1]+2.f*factor;
 
@@ -212,259 +210,93 @@ coor[2]-coor[0] = 2*image->d_re_im/XYToReImScale()
   coor[4] = coor[0];
   coor[6] = coor[2];
   coor[7] = coor[5];
-//cout << "MandelDrawer::getOpenGLScreenCoordinates: "
-//        "image start: " << image->start_re << '/' << image->start_im << endl;
-  
+
 //cout << "MandelDrawer::getOpenGLScreenCoordinates: "
 //     << coor[0] << '/' << coor[1] << ";  "
-//     << coor[6] << '/' << coor[7] << endl;
+//     << coor[2] << '/' << coor[5] << endl;
 }
 
-static
-void HSV2RGB(int h,int s,int v,unsigned char bgr[3]) {
-  int r,g,b;
-  h = h % (6*255);
-  if (h < 0) h += 6*255;
-  if (h < 256) {
-    g = h;
-    b = 255;
-    r = 0;
-  } else if ((h-=255) < 256) {
-    g = 255;
-    b = 255-h;
-    r = 0;
-  } else if ((h-=255) < 256) {
-    r = h;
-    g = 255;
-    b = 0;
-  } else if ((h-=255) < 256) {
-    r = 255;
-    g = 255-h;
-    b = 0;
-  } else if ((h-=255) < 256) {
-    b = h;
-    r = 255;
-    g = 0;
-  } else {
-    h -= 255;
-    b = 255;
-    r = 255-h;
-    g = 0;
-  }
-  bgr[0] = ((r*s)/255 + (255-s))*v/255;
-  bgr[1] = ((g*s)/255 + (255-s))*v/255;
-  bgr[2] = ((b*s)/255 + (255-s))*v/255;
-}
-
-
-static double H(double x) {
-  return x;
-  return x*x*(3.0-2.0*x);
-}
-
-static double Blue(double x) {
-  return H(x);
-}
-
-static double Green(double x) {
-  if (x < 0.4) return H(x*(1.0/0.4));
-  if (x < 0.9) return 1.0-H((x-0.4)*(1.0/(0.9-0.4)));
-  return H((x-0.9)*(1.0/(1.0-0.9)));
-}
-
-static double Red(double x) {
-  if (x < 0.2) return H(x*(1.0/0.2));
-  if (x < 0.7) return 1.0-H((x-0.2)*(1.0/(0.7-0.2)));
-  return H((x-0.7)*(1.0/(1.0-0.7)));
-}
-
-void CheckGlError(const char *description);
-
-void InitBlueStripes(const unsigned char r,const unsigned char g,
-                     const int count,unsigned char *colors) {
-    // choose count blue values from 0 to 255
-  const int blue_increment = 255 / (count-1);
-  int blue_remainder = 255 - blue_increment*(count-1);
-  int blue = 0;
-  for (int i=0;i<count;i++) {
-    colors[0] = r;
-    colors[1] = g;
-    colors[2] = blue;
-    colors += 3;
-    blue += blue_increment;
-    if (blue_remainder > 0) {
-      blue++;
-      blue_remainder--;
-    }
-  }
-}
-
-void InitGreenStripes(const unsigned char r,
-                      const int count,unsigned char *colors) {
-//  cout << "InitGreenStripes(" << ((int)r) << ',' << count << ')' << endl;
-  const int nr_of_blue_stripes = (int)floor(sqrt(count));
-  int blue_size = count / nr_of_blue_stripes;
-  int blue_remainder = count - blue_size*nr_of_blue_stripes;
-  const int green_increment = 255 / (nr_of_blue_stripes-1);
-  int green_remainder = 255 - green_increment*(nr_of_blue_stripes-1);
-  int green = 0;
-  for (int i=0;i<nr_of_blue_stripes;i++) {
-    int blue_count = blue_size;
-    if (blue_remainder > 0) {
-      blue_remainder--;
-      blue_count++;
-    }
-    InitBlueStripes(r,green,blue_count,colors);
-    colors += 3*blue_count;
-    green += green_increment;
-    if (green_remainder > 0) {
-      green_remainder--;
-      green++;
-    }
-  }
-//  cout << "InitGreenStripes end" << endl;
-}
-
-void InitRedStripes(const int count,
-                    unsigned char *colors) {
-  const double h = cbrt(count);
-  const int nr_of_green_stripes = (int)floor(sqrt(h*h));
-  int green_size = count / nr_of_green_stripes;
-  int green_remainder = count - green_size*nr_of_green_stripes;
-  const int red_increment = 255 / (nr_of_green_stripes-1);
-  int red_remainder = 255 - red_increment*(nr_of_green_stripes-1);
-  int red = 0;
-  for (int i=0;i<nr_of_green_stripes;i++) {
-    int green_count = green_size;
-    if (green_remainder > 0) {
-      green_remainder--;
-      green_count++;
-    }
-    InitGreenStripes(red,green_count,colors);
-    colors += 3*green_count;
-    red += red_increment;
-    if (red_remainder > 0) {
-      red_remainder--;
-      red++;
-    }
-  }
-//  cout << "InitRedStripes end" << endl;
-}
-
-
-void InitColors(int max,unsigned char colors[256*256*3]) {
-  if (max > 256*256) max = 256*256;
-  InitRedStripes(max,colors);
-  memset(colors+3*max,0,3*(256*256-max));
+float MandelDrawer::getProgress(void) const {
+  return image->pixel_count / (float)(width*height);
 }
 
 bool MandelDrawer::step(void) {
 //cout << "step: start" << endl;
   bool rval = true;
-  if (new_parameters) {
+  if (new_parameters || new_max_iter) {
     __sync_synchronize();
 
-//cout << "step: (re)starting work" << endl;
     threads->cancelExecution();
+    image->pixel_count = 0;
+
+    if (new_size_xy) {
+      image->recalc_limit = 0;
+    } else {
+      image->recalc_limit = image->max_iter;
+    }
+    image->max_iter = max_iter;
+
+//cout << "step: (re)starting work: new_size_xy:" << new_size_xy
+//     << ", recalc_limit:" << image->recalc_limit
+//     << ", max_iter:" << image->max_iter
+//     << endl;
 
     { // re-scale MandelImage
       float coor[8];
       getOpenGLScreenCoordinates(coor);
-      unsigned int *new_data = new unsigned int[width*height];
-      for (int y=0;y<height;y++) {
+      unsigned int *const new_data = new unsigned int[width*height];
+      unsigned int *nd = new_data;
+      for (int y=0;y<height;y++,nd+=width) {
         double y_gl = (y+0.5)*(2.0/height) - 1.0;
-        if (y_gl < coor[1] || y_gl > coor[5]) {
-          memset(new_data+y*width,0,width*sizeof(unsigned int));
+        if (y_gl < coor[1] || y_gl >= coor[5]) {
+          for (int x=0;x<width;x++) {
+            nd[x] = 0x80000000;
+          }
         } else {
-          const int yb = (int)floor(0.5+(height-1) * (y_gl-coor[1])
-                                         / (coor[5] - coor[1]));
+          const int yb = (int)floor(height * (y_gl - coor[1])
+                                        / (coor[5] - coor[1]));
           for (int x=0;x<width;x++) {
             double x_gl = (x+0.5)*(2.0/width) - 1.0;
-            if (x_gl < coor[0] || x_gl > coor[2]) {
-              new_data[y*width+x] = 0;
+            if (x_gl < coor[0] || x_gl >= coor[2]) {
+              nd[x] = 0x80000000;
             } else {
-              const int xb = (int)floor(0.5+(width-1) * (x_gl-coor[0])
-                                             / (coor[2] - coor[0]));
-              new_data[y*width+x] = image->data[yb*width+xb];
+              const int xb = (int)floor(width * (x_gl - coor[0])
+                                           / (coor[2] - coor[0]));
+              if (new_size_xy) {
+                nd[x] = image->data[yb*(image->screen_width)+xb] | 0x80000000;
+              } else {
+                nd[x] = image->data[yb*(image->screen_width)+xb];
+                if (!image->needRecalc(nd[x])) image->pixel_count++;
+              }
             }
           }
         }
       }
-//cout << "step: changing buffer" << endl;
-      delete[] image->data;
-      image->data = new_data;
+      for (int y=0;y<height;y++) {
+        memcpy(image->data + y*(image->screen_width),new_data+y*width,
+               sizeof(unsigned int)*width);
+      }
+      delete[] new_data;
+      
+      
+//cout << "step: buffer rescaled" << endl;
       CheckGlError("before glTexSubImage2D 0");
-      glActiveTexture(GL_TEXTURE0);
+#ifndef __ANDROID__
+      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->screen_width);
+#endif
       glTexSubImage2D(GL_TEXTURE_2D,0,
                       0,0,width,height,
                       GL_RGBA,GL_UNSIGNED_BYTE,
                       image->data);
       CheckGlError("after glTexSubImage2D 0");
     }
+    new_size_xy = false;
 
-
-    image->d_re_im = size_xy / ((width<height)?width:height);
+    image->d_re_im = XYToReImScale();
     image->start_re = center_x - 0.5*image->d_re_im * width;
     image->start_im = center_y - 0.5*image->d_re_im * height;
 
-    image->max_iter = max_iter;
-    if (new_max_iter) {
-//cout << "step: must recalc lookup texture" << endl;
-        // recalc lookup image
-      glActiveTexture(GL_TEXTURE1);
-      {
-        unsigned char *pixels = new unsigned char[256*256*3];
-        InitColors(max_iter,pixels);
-/*
-        unsigned char *p = pixels;
-        int max = max_iter;
-        if (max > 0x10000) max = 0x10000;
-  //      const double log_scale = 1.0/log(max-1);
-        for (int i=0;i<256*256;i++) {
-          if (i < max) {
-            InitColor(i/(double)(max-1),p);
-            p += 3;
-
-//            *p++ = 17 * ((i>>8)&15);
-//            *p++ = 17 * ((i>>4)&15);
-//            *p++ = 17 * (i&15);
-
-//            *p++ = 36 * ((i>>6)&7);
-//            *p++ = 36 * ((i>>3)&7);
-//            *p++ = 36 * (i&7);
-
-
-//            double x = (1+i)/(double)max;
-//            HSV2RGB(i,255,255*sqrt(x),p);
-//            p += 3;
-
-//            double x = log(1+i)*log_scale; // 0<=x<=1
-//            double x = (1+i)/(double)max;
-//            x = x*(2.0-x);
-//cout << i << '(' << x << "): " << Blue(x) << ", " << Green(x) << ", " << Red(x) << endl;
-
-//            *p++ = (int)(0.5+255.0*Blue(x));
-//            *p++ = (int)(0.5+255.0*Green(x));
-//            *p++ = (int)(0.5+255.0*Red(x));
-
-          } else {
-            *p++ = 0;
-            *p++ = 0;
-            *p++ = 0;
-          }
-        }
-*/
-        CheckGlError("before glTexSubImage2D 1");
-        glTexSubImage2D(GL_TEXTURE_2D,0,
-                        0,0,256,256,
-                        GL_RGB,GL_UNSIGNED_BYTE,pixels);
-        CheckGlError("after glTexSubImage2D 1");
-        delete[] pixels;
-      }
-      glActiveTexture(GL_TEXTURE0);
-//cout << "step: lookup texture ok" << endl;
-    }
-    threads->startExecution(new MainJob(*threads,*image,width,height));
+    threads->startExecution(new MainJob(*image,width,height));
 //cout << "step: startExecution: new MainJob queued" << endl;
     was_working_last_time = true;
     new_parameters = false;
@@ -472,27 +304,28 @@ bool MandelDrawer::step(void) {
   } else {
     if (was_working_last_time) {
       if (threads->workIsFinished()) {
-//cout << "step: work finished" << endl;
+        const float progress = getProgress();
+        if (progress != 1.f) {
+          ABORT();
+        }
+        // cout << "step: work finished" << endl;
         was_working_last_time = false;
       } else {
-//cout << "step: still working" << endl;
+        // cout << "step: still working" << endl;
       }
       CheckGlError("before glTexSubImage2D 2");
-      glActiveTexture(GL_TEXTURE0);
       
         // TODO: unite jobs and add currently executing jobs
         // GL_EXT_unpack_subimage seems to be not supported
-//      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->screen_width);
-
-//glPixelStorei(GL_UNPACK_ALIGNMENT,4);
-
+#ifndef __ANDROID__
+      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->screen_width);
+#endif
       threads->draw(image);
 
 //      glTexSubImage2D(GL_TEXTURE_2D,0,
 //                      0,0,width,height,
 //                      GL_RGBA,GL_UNSIGNED_BYTE,
 //                      image->data);
-//      glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
       CheckGlError("after glTexSubImage2D 2");
     } else {
       rval = false;

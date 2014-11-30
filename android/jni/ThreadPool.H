@@ -86,11 +86,11 @@ private:
     }
     void *threadFunc(void);
     ThreadPool *pool;
-    Job::ChildPtr current_job;
+    Job::Ptr current_job;
   };
   MyThread *const threads;
-  JobQueue<Job::ChildPtr> jobs_not_yet_executed;
-  JobQueue<Job::Ptr> jobs_not_yet_drawn;
+  JobQueue jobs_not_yet_executed;
+  JobQueue jobs_not_yet_drawn;
   Semaphore sem_start;
   Semaphore sem_finished;
   bool expecting_sem_finished;

@@ -31,6 +31,7 @@ class ThreadPool;
 
 class MandelImage {
 public:
+  mutable volatile _Atomic_word pixel_count;
   double start_re; // start of first pixel
   double start_im;
   double d_re_im; // size of one pixel
@@ -38,16 +39,23 @@ public:
   const int screen_width; // line size
   const int screen_height;
   unsigned int max_iter;
+    // only compute pixel value if existing value>=recalc_limit
+  unsigned int recalc_limit;
   ThreadPool &thread_pool;
   volatile _Atomic_word &terminate_flag;
   volatile _Atomic_word &nr_of_waiting_threads;
 public:
+  bool needRecalc(unsigned int val) const {
+    return (val & 0x80000000) ||
+           (val >= recalc_limit && recalc_limit < max_iter);
+  }
   MandelImage(int screen_width,int screen_height,
               ThreadPool &thread_pool,
               volatile _Atomic_word &terminate_flag,
               volatile _Atomic_word &nr_of_waiting_threads)
     : data(new unsigned int[screen_width*screen_height]),
       screen_width(screen_width),screen_height(screen_height),
+      recalc_limit(0),
       thread_pool(thread_pool),
       terminate_flag(terminate_flag),
       nr_of_waiting_threads(nr_of_waiting_threads) {}
@@ -61,7 +69,7 @@ public:
 #ifdef DEBUG
         if (d[i]) {
           cout << "FillRect: double drawing" << endl;
-          abort();
+          ABORT();
         }
 #endif
         d[i] = value;
@@ -77,7 +85,7 @@ public:
       for (int i=0;i<size_x;i++) {
         if (d[i]) {
           cout << "AssertEmpty: double drawing" << endl;
-          abort();
+          ABORT();
         }
       }
     }
@@ -88,11 +96,12 @@ public:
       for (int i=0;i<size_x;i++) {
         if (d[i] == 0) {
           cout << "assertNonEmpty: not full" << endl;
-          abort();
+          ABORT();
         }
       }
     }
   }
+/*
   void horzLine4(unsigned int *d,double re,double im,int size_x) const {
       // prerequirement: size_x%VECTOR_SIZE = 0
     VECTOR_TYPE mr[VECTOR_SIZE];
@@ -105,7 +114,7 @@ public:
 #ifdef DEBUG
         if (d[i]) {
           cout << "horzLine4: double drawing" << endl;
-          abort();
+          ABORT();
         }
 #endif
         mr[i] = start_re+re;
@@ -124,7 +133,7 @@ public:
 #ifdef DEBUG
         if (d[i]) {
           cout << "horzLine: double drawing" << endl;
-          abort();
+          ABORT();
         }
 #endif
         mr[i] = start_re+re;
@@ -140,7 +149,7 @@ public:
 #ifdef DEBUG
         if (d[i]) {
           cout << "horzLine: double drawing2" << endl;
-          abort();
+          ABORT();
         }
 #endif
         d[i] = tmp[i];
@@ -188,6 +197,7 @@ public:
   void fullRect(int x,int y,int size_x,int size_y) const {
     fullRect(data+y*screen_width+x,x*d_re_im,y*d_re_im,size_x,size_y);
   }
+*/
 };
 
 

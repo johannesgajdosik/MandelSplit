@@ -26,10 +26,14 @@ class MandelDrawer {
 public:
   MandelDrawer(void);
   ~MandelDrawer(void);
+  void reset(void);
+  void reset(double center_re,double center_im,double size_re_im,
+             unsigned int max_iter);
   void initialize(int width,int height);
+  void sizeChanged(int w,int h);
   void *getImageData(void) const;
-  int getMaxIter(void) const;
-  void setMaxIter(int n);
+  unsigned int getMaxIter(void) const;
+  void setMaxIter(unsigned int n);
   double getCenterRe(void) const {return center_x;}
   double getCenterIm(void) const {return center_y;}
   double getSizeReIm(void) const {return size_xy;}
@@ -41,9 +45,6 @@ public:
   void getOpenGLScreenCoordinates(float coor[8]) const;
 
     // set Transformation to ReIm coordinates:
-  void reset(void);
-  void reset(double center_re,double center_im,double size_re_im,
-             int max_iter);
   void fitReIm(const Vector<float,2> &screen_pos,
                const Vector<double,2> &re_im_pos);
   void fitReIm(const Vector<float,2> &screen_pos,
@@ -56,6 +57,7 @@ public:
   void gotoScreenCoordinates(int x,int y,double re,double im);
 
   bool step(void);
+  float getProgress(void) const;
 private:
   class ThreadPool *const threads;
   class MandelImage *image;
@@ -64,9 +66,10 @@ private:
   double size_xy;
   int width;
   int height;
-  int max_iter;
+  unsigned int max_iter;
   bool new_parameters;
   bool new_max_iter;
+  bool new_size_xy;
   bool was_working_last_time;
 };
 

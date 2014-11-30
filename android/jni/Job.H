@@ -39,7 +39,6 @@
 using __gnu_cxx::__atomic_add;
 using __gnu_cxx::__exchange_and_add;
 
-class ThreadPool;
 class MandelImage;
 
 class FreeList {
@@ -54,30 +53,15 @@ public:
   ~FreeList(void) {void *p;while ((p=stack.popNonThreadSafe())) free(p);}
 };
 
-class Job {
-private:
-  ReferenceCount rc1,rc2;
-  virtual void lastChildHasReleased(void) = 0;
+class Job : public IntrusivePtrCapable {
 protected:
   Job(volatile _Atomic_word &terminate_flag) : terminate_flag(terminate_flag) {}
 public:
-  struct RefCountHandler1 {
-    static void retain(Job *j) {j->rc1.retain();j->rc2.retain();}
-    static void release(Job *j) {
-      if (j->rc1.release()) j->lastChildHasReleased();
-      if (j->rc2.release()) delete j;
-    }
-  };
-  struct RefCountHandler2 {
-    static void retain(Job *j) {j->rc2.retain();}
-    static void release(Job *j) {if (j->rc2.release()) delete j;}
-  };
-  typedef IntrusivePtr<Job,RefCountHandler1> ChildPtr;
-  typedef IntrusivePtr<Job,RefCountHandler2> Ptr;
+  typedef IntrusivePtr<Job> Ptr;
   virtual ~Job(void) {}
   virtual void print(std::ostream &o) const = 0;
   virtual bool execute(void) = 0;
-  virtual bool needsDrawing(int &x,int &y,int &w,int &h) const {return false;}
+  virtual void drawToTexture(void) const {}
   volatile _Atomic_word &terminate_flag;
 };
 
@@ -92,11 +76,10 @@ protected:
   static FreeList free_list;
 };
 
-template<class Ptr>
 class JobQueue : public JobQueueBase {
 public:
   JobQueue(void) : nr_of_waiting_threads(0) {}
-  void queue(Job *j) {
+  void queue(const Job::Ptr &j) {
     Node *n = new Node(j);
     stack.push(n);
     if (nr_of_waiting_threads) {
@@ -109,24 +92,24 @@ public:
       delete node;
     }
   }
-  Ptr dequeueWithoutWaiting(void) {
+  Job::Ptr dequeueWithoutWaiting(void) {
     for (;;) {
       Node *node = stack.pop();
       if (node) {
-        Ptr rval(node->job);
+        Job::Ptr rval(node->job);
         delete node;
         return rval;
       }
       if (stack.empty()) {
-        return Ptr();
+        return Job::Ptr();
       }
     }
   }
-  Ptr dequeue(void) {
+  Job::Ptr dequeue(void) {
     for (;;) {
       Node *node = stack.pop();
       if (node) {
-        Ptr rval(node->job);
+        Job::Ptr rval(node->job);
         delete node;
         return rval;
       }
@@ -144,9 +127,9 @@ private:
       return free_list.malloc(size);
     }
     void operator delete(void *p) {free_list.push(p);}
-    Node(Job *job) : job(job) {}
+    Node(const Job::Ptr &job) : job(job) {}
     Node *next;
-    Ptr job;
+    Job::Ptr job;
   };
   LockfreeStack<Node> stack;
 public:
@@ -161,16 +144,14 @@ protected:
   ChildJob(Job *parent)
     : Job(parent->terminate_flag),parent(parent) {}
   Job *getParent(void) const {return parent.get();}
-//  void resetParent(void) {parent.reset();}
-  void lastChildHasReleased(void) {parent.reset();}
+  void resetParent(void) {parent.reset();}
 private:
-  Job::ChildPtr parent; // keep parent alive
+  Job::Ptr parent; // keep parent alive
 };
 
 class MainJob : public Job {
 public:
-  MainJob(ThreadPool &pool,
-          const MandelImage &image,
+  MainJob(const MandelImage &image,
           int size_x,int size_y);
   void *operator new(size_t size) {
     if (size != sizeof(MainJob)) abort();
@@ -180,13 +161,12 @@ public:
   }
   void operator delete(void *p) {free_list.push(p);}
 private:
-  void print(std::ostream &o) const {o << "MainJob" << endl;}
+  ~MainJob(void);
+  void print(std::ostream &o) const {o << "MainJob";}
   bool execute(void);
   friend class MainFirstStageJob;
   void firstStageFinished(void);
-  void lastChildHasReleased(void);
 private:
-  ThreadPool &pool;
   const MandelImage &image;
   const int size_x;
   const int size_y;

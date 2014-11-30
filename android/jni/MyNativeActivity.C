@@ -102,6 +102,19 @@ int MyNativeActivity::getFuncResult(const char *func_name) const {
 }
 
 
+int MyNativeActivity::getDisplayRotation(void) const {
+  return activity->env->CallIntMethod(obj_Display, mid_getRotation);
+}
+
+int MyNativeActivity::getScreenWidth(void) const {
+  return activity->env->CallIntMethod(obj_Display, mid_getWidth);
+}
+
+int MyNativeActivity::getScreenHeight(void) const {
+  return activity->env->CallIntMethod(obj_Display, mid_getHeight);
+}
+
+
 
 
 

@@ -52,7 +52,7 @@ LOCAL_STATIC_LIBRARIES := freetype2
 
 LOCAL_LDLIBS    := -llog -landroid -lGLESv2 -lEGL
 LOCAL_CPP_EXTENSION := .C
-LOCAL_CFLAGS := -DANDROID_LOGGER_TAG=mandel-split -ffast-math -O6 -funroll-loops -g
+LOCAL_CFLAGS := -DANDROID_LOGGER_TAG=mandel-split -ffast-math -O6 -funroll-loops
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/src $(LOCAL_PATH)/boost_1_54_0 $(LOCAL_PATH)/freetype2/include $(LOCAL_PATH)
 
 include $(BUILD_SHARED_LIBRARY)

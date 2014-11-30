@@ -79,6 +79,9 @@ public:
   void showDialog(int id) const;
   void showToast(const char *text,bool long_duration) const;
   int getFuncResult(const char *func_name) const;
+  int getDisplayRotation(void) const;
+  int getScreenWidth(void) const;
+  int getScreenHeight(void) const;
   void setSystemUiVisibility(int visibility);
   void addWindowFlags(int flags);
   virtual void maxIterChanged(int x) {}

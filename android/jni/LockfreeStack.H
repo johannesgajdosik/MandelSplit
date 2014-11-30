@@ -22,7 +22,7 @@
 
 template<class Node> // requires Node *Node::next
 class LockfreeStack {
-#ifdef x86_64
+#ifdef __x86_64__
 typedef __int128 DoubleInt;
 typedef long long int SingleInt;
 #else
@@ -94,6 +94,6 @@ private:
   }
 private:
   DoubleInt head_and_counter; // must be 16byte-aligned
-} __attribute__((aligned(16))) ;
+} __attribute__((aligned(64))) ; // 64byte cacheline size on android
 
 #endif
