@@ -50,17 +50,31 @@ void MyNativeActivity::setRequestedOrientation(
   jni_env->DeleteLocalRef(cls_NativeActivity);
 }
 
-void MyNativeActivity::showMaxIterDialog(int curr_value,
-                                         double center_re,double center_im,
-                                         double d_re_im,
-                                         int info_enabled) const {
+void MyNativeActivity::showMaxIterDialog(int max_iter,
+                                         const Complex<double> &center,
+                                         const Complex<double> &unity_pixel,
+                                         bool info_enabled,
+                                         bool turning_enabled) const {
   JNIEnv *jni_env = activity->env;
   const jclass cls_NativeActivity = jni_env->GetObjectClass(activity->clazz);
   const jmethodID mid = jni_env->GetMethodID(cls_NativeActivity,
-                                             "showMaxIterDialog","(IDDDI)V");
+                                             "showMaxIterDialog","(IDDDDZZ)V");
   jni_env->DeleteLocalRef(cls_NativeActivity);
-  jni_env->CallVoidMethod(activity->clazz,mid,curr_value,
-                          center_re,center_im,d_re_im,info_enabled);
+  double angle = -(180.0/M_PI)*atan2(unity_pixel.im,unity_pixel.re);
+//  if (angle < 0.0) angle += 360.0;
+  jni_env->CallVoidMethod(activity->clazz,mid,max_iter,
+                          center.re,center.im,
+                          sqrt(unity_pixel.length2()),angle,
+                          info_enabled,turning_enabled);
+}
+
+void MyNativeActivity::performHapticFeedback(void) const {
+  JNIEnv *jni_env = activity->env;
+  const jclass cls_NativeActivity = jni_env->GetObjectClass(activity->clazz);
+  const jmethodID mid = jni_env->GetMethodID(cls_NativeActivity,
+                                             "performHapticFeedback","()V");
+  jni_env->DeleteLocalRef(cls_NativeActivity);
+  jni_env->CallVoidMethod(activity->clazz,mid);
 }
 
 void MyNativeActivity::showDialog(int id) const {
@@ -115,7 +129,34 @@ int MyNativeActivity::getScreenHeight(void) const {
 }
 
 
+void MyNativeActivity::callFromJavaThread(const boost::function<void(void)> &f,
+                                          int delay_millis) {
+  int index;
+  for (;;) {
+    MutexLock lock(java_cb_map_mutex);
+    index = java_cb_map_sequence++;
+    boost::function<void(void)> &func(java_cb_map[index]);
+    if (!func) {func = f;break;}
+  }
+  JNIEnv *jni_env = activity->env;
+  const jclass cls_NativeActivity = jni_env->GetObjectClass(activity->clazz);
+  const jmethodID mid = jni_env->GetMethodID(cls_NativeActivity,
+                                             "callFromJavaThread","(II)V");
+  jni_env->DeleteLocalRef(cls_NativeActivity);
+  jni_env->CallVoidMethod(activity->clazz,mid,delay_millis,index);
+}
 
+void MyNativeActivity::calledFromJava(int index) {
+  boost::function<void(void)> f;
+  {
+    MutexLock lock(java_cb_map_mutex);
+    JavaCbMap::iterator it(java_cb_map.find(index));
+    if (it == java_cb_map.end()) ABORT();
+    f.swap(it->second);
+    java_cb_map.erase(it);
+  }
+  f();
+}
 
 
 
@@ -257,7 +298,7 @@ void MyNativeActivity::addWindowFlags(int flags) {
 static MyNativeActivity *static_my_native_activity = 0;
 
 MyNativeActivity::MyNativeActivity(ANativeActivity *activity)
-  : activity(activity),window(0),input_queue(0) {
+  : activity(activity),window(0),input_queue(0),java_cb_map_sequence(0) {
 //setSystemUiVisibility(2+512);
   cout << pthread_self() << " MyNativeActivity::MyNativeActivity, "
           "SDK version: " << activity->sdkVersion << endl;
@@ -436,7 +477,7 @@ void MyNativeActivity::onNativeWindowCreated(ANativeWindow *w) {
   continue_looping = true;
   if (0 > pthread_create(&thread,0,MyNativeActivity::Main,this)) {
     cout << "onNativeWindowCreated: pthread_create failed" << endl;
-    abort();
+    ABORT();
   }
 }
 
@@ -445,7 +486,7 @@ void MyNativeActivity::onNativeWindowDestroyed(ANativeWindow *w) {
   continue_looping = false;
   if (0 > pthread_join(thread,0)) {
     cout << "onNativeWindowDestroyed: pthread_join failed" << endl;
-    abort();
+    ABORT();
   }
   window = 0;
 }
@@ -453,16 +494,23 @@ void MyNativeActivity::onNativeWindowDestroyed(ANativeWindow *w) {
   // implementation of global function
 void ReportErrorToUser(const char *text) {
   if (static_my_native_activity) {
-    static_my_native_activity->showToast(
-      "glunatic: could not open the expansion file, please deinstall and "
-      "properly reinstall from \"Google Play\" using Wifi, "
-      "and wait until the app including expansion file is installed",
-      true);
+    static_my_native_activity->showToast(text,true);
     static_my_native_activity->callJavaFinish();
   }
 }
 
 extern "C" {
+
+JNIEXPORT jint JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_minimizeMaxIter(
+                         JNIEnv *env,jobject obj) {
+  if (static_my_native_activity)
+    return static_my_native_activity->minimizeMaxIter();
+  else
+    return 8;
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged: "
+//       << x << endl;
+}
+
 JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged(
                          JNIEnv *env,jobject obj,
                          jint x) {
@@ -483,8 +531,24 @@ JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIt
 
 JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_displayInfo(
                          JNIEnv *env,jobject obj,
-                         jint enable_info) {
+                         jboolean enable) {
   if (static_my_native_activity)
-    static_my_native_activity->displayInfo(enable_info);
+    static_my_native_activity->displayInfo(enable);
+}
+
+JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_enableTurning(
+                         JNIEnv *env,jobject obj,
+                         jboolean enable) {
+  if (static_my_native_activity)
+    static_my_native_activity->enableTurning(enable);
+}
+
+JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_calledFromJava(
+                         JNIEnv *env,jobject obj,
+                         jint user_data) {
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_calledFromJava: "
+//       << user_data << endl;
+  if (static_my_native_activity)
+    static_my_native_activity->calledFromJava(user_data);
 }
 }

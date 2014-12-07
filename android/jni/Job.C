@@ -27,6 +27,10 @@
 #include "Logger.H"
 
 #include "GLee.h"
+#if !defined(__ANDROID__) && defined(Complex)
+  // X.h defines Complex as a macro for Polygon shapes
+#undef Complex
+#endif
 
 FreeList JobQueueBase::free_list;
 
@@ -52,9 +56,9 @@ class LineJob : public ChildJob {
 protected:
   LineJob(Job *parent,
           const MandelImage &image,int x,int y,unsigned int *d,
-          double re,double im,int size)
+          const Complex<double> &re_im,int size)
     : ChildJob(parent),image(image),x(x),y(y),
-      d(d),re(re),im(im),size(size) {}
+      d(d),re_im(re_im),size(size) {}
 public:
   void *operator new(size_t size) {
     if (size != sizeof(LineJob)) ABORT();
@@ -68,7 +72,7 @@ protected:
   const int x;
   const int y;
   unsigned int *const d;
-  double re,im;
+  Complex<double> re_im;
   int size;
   static FreeList free_list;
 };
@@ -81,17 +85,19 @@ public:
                                     const MandelImage &image,int x,int y,
                                     int size_x) {
     return create(parent,image,x,y,image.data+y*image.screen_width+x,
-                  x*image.d_re_im,y*image.d_re_im+image.start_im,size_x);
+                  Complex<double>(x,y)*image.d_re_im,
+                  size_x);
   }
   static inline HorzLineJob *create(Job *parent,
                                     const MandelImage &image,int x,int y,
-                                    unsigned int *d,double re,double im,
+                                    unsigned int *d,
+                                    const Complex<double> &re_im,
                                     int size_x);
 protected:
   HorzLineJob(Job *parent,
               const MandelImage &image,int x,int y,unsigned int *d,
-              double re,double im,int size_x)
-    : LineJob(parent,image,x,y,d,re,im,size_x) {}
+              const Complex<double> &re_im,int size_x)
+    : LineJob(parent,image,x,y,d,re_im,size_x) {}
 private:
   void print(std::ostream &o) const {
     o << "HorzLineJob(" << x << ',' << y << ',' << size << ')';
@@ -108,8 +114,8 @@ class RecalcLimitHorzLineJob : public HorzLineJob {
 public:
   RecalcLimitHorzLineJob(Job *parent,
                          const MandelImage &image,int x,int y,unsigned int *d,
-                         double re,double im,int size_x)
-    : HorzLineJob(parent,image,x,y,d,re,im,size_x) {}
+                         const Complex<double> &re_im,int size_x)
+    : HorzLineJob(parent,image,x,y,d,re_im,size_x) {}
 private:
   void print(std::ostream &o) const {
     o << "RecalcLimitHorzLineJob(" << x << ',' << y << ',' << size << ')';
@@ -119,12 +125,13 @@ private:
 
 inline HorzLineJob *HorzLineJob::create(Job *parent,
                                         const MandelImage &image,int x,int y,
-                                        unsigned int *d,double re,double im,
+                                        unsigned int *d,
+                                        const Complex<double> &re_im,
                                         int size_x) {
   return
      (image.recalc_limit > 0)
-   ? new RecalcLimitHorzLineJob(parent,image,x,y,d,re,im,size_x)
-   : new HorzLineJob(parent,image,x,y,d,re,im,size_x);
+   ? new RecalcLimitHorzLineJob(parent,image,x,y,d,re_im,size_x)
+   : new HorzLineJob(parent,image,x,y,d,re_im,size_x);
 }
 
 bool RecalcLimitHorzLineJob::execute(void) {
@@ -132,13 +139,12 @@ bool RecalcLimitHorzLineJob::execute(void) {
   VECTOR_TYPE mi[VECTOR_SIZE];
   unsigned int tmp[VECTOR_SIZE];
   unsigned int *pos[VECTOR_SIZE];
-  for (int i=0;i<VECTOR_SIZE;i++) mi[i] = im;
   unsigned int *d = HorzLineJob::d;
   int x = HorzLineJob::x;
   int size_x = HorzLineJob::size;
   int vector_count = 0;
   int count = 0;
-  for (;size_x>0;size_x--,d++,x++,re+=image.d_re_im) {
+  for (;size_x>0;size_x--,d++,x++,re_im+=image.d_re_im) {
     if (terminate_flag) {
         // if max_iter has increased, mark remaining black pixels dirty:
       if (image.max_iter > image.recalc_limit) {
@@ -156,15 +162,16 @@ bool RecalcLimitHorzLineJob::execute(void) {
       image.thread_pool.queueJob(new RecalcLimitHorzLineJob(
                                        getParent(),image,x+size_x0,y,
                                        d+size_x0,
-                                       re+size_x0*image.d_re_im,im,
+                                       re_im+size_x0*image.d_re_im,
                                        size_x-size_x0));
       HorzLineJob::size -= (size_x-size_x0);
       size_x = size_x0;
     }
-      // process pixel at (re,im)=(x,y)=*d
+      // process pixel at (re_im)=(x,y)=*d
   if (image.needRecalc(*d)) {
       pos[vector_count] = d;
-      mr[vector_count] = image.start_re+re;
+      mr[vector_count] = image.start.re+re_im.re;
+      mi[vector_count] = image.start.im+re_im.im;
       vector_count++;
       if (vector_count >= VECTOR_SIZE) {
         vector_count = 0;
@@ -195,7 +202,6 @@ bool HorzLineJob::execute(void) {
 //     << ")::execute begin" << endl;
   VECTOR_TYPE mr[VECTOR_SIZE];
   VECTOR_TYPE mi[VECTOR_SIZE];
-  for (int i=0;i<VECTOR_SIZE;i++) mi[i] = im;
   unsigned int *d = HorzLineJob::d;
   int x = HorzLineJob::x;
   int size_x = HorzLineJob::size;
@@ -206,7 +212,7 @@ bool HorzLineJob::execute(void) {
       const int size_x0 = ((size_x/2)+(VECTOR_SIZE-1)) & (~(VECTOR_SIZE-1));
       image.thread_pool.queueJob(new HorzLineJob(getParent(),image,x+size_x0,y,
                                                  d+size_x0,
-                                                 re+size_x0*image.d_re_im,im,
+                                                 re_im+size_x0*image.d_re_im,
                                                  size_x-size_x0));
 //if (y == 0)
 //cout << "HorzLineJob: split off: " << x+size_x0 << ", " << size_x-size_x0
@@ -217,14 +223,15 @@ bool HorzLineJob::execute(void) {
 //cout << "HorzLineJob: split rem: " << HorzLineJob::x
 //     << ", " << HorzLineJob::size << endl;
     }
-    for (int i=0;i<VECTOR_SIZE;i++,re+=image.d_re_im) {
+    for (int i=0;i<VECTOR_SIZE;i++,re_im+=image.d_re_im) {
 #ifdef DEBUG
       if (d[i]) {
         cout << "HorzLineJob::execute: double drawing" << endl;
         ABORT();
       }
 #endif
-      mr[i] = image.start_re+re;
+      mr[i] = image.start.re+re_im.re;
+      mi[i] = image.start.im+re_im.im;
     }
     JULIA_FUNC(mr,mi,image.max_iter,d);
     count += VECTOR_SIZE;
@@ -232,8 +239,9 @@ bool HorzLineJob::execute(void) {
   if (size_x > 0) {
     if (terminate_flag) goto exit_loop;
     unsigned int tmp[VECTOR_SIZE];
-    for (int i=0;i<VECTOR_SIZE;i++,re+=image.d_re_im) {
-      mr[i] = image.start_re+re;
+    for (int i=0;i<VECTOR_SIZE;i++,re_im+=image.d_re_im) {
+      mr[i] = image.start.re+re_im.re;
+      mi[i] = image.start.im+re_im.im;
     }
     JULIA_FUNC(mr,mi,image.max_iter,tmp);
     count += size;
@@ -263,17 +271,19 @@ public:
                                     const MandelImage &image,int x,int y,
                                     int size_y) {
     return create(parent,image,x,y,image.data+y*image.screen_width+x,
-                  x*image.d_re_im+image.start_re,y*image.d_re_im,size_y);
+                  Complex<double>(x,y)*image.d_re_im,
+                  size_y);
   }
   static inline VertLineJob *create(Job *parent,
                                     const MandelImage &image,int x,int y,
-                                    unsigned int *d,double re,double im,
+                                    unsigned int *d,
+                                    const Complex<double> &re_im,
                                     int size_y);
 protected:
   VertLineJob(Job *parent,
               const MandelImage &image,int x,int y,unsigned int *d,
-              double re,double im,int size_y)
-    : LineJob(parent,image,x,y,d,re,im,size_y) {}
+              const Complex<double> &re_im,int size_y)
+    : LineJob(parent,image,x,y,d,re_im,size_y) {}
 private:
   void print(std::ostream &o) const {
     o << "VertLineJob(" << x << ',' << y << ',' << size << ')';
@@ -304,8 +314,8 @@ class RecalcLimitVertLineJob : public VertLineJob {
 public:
   RecalcLimitVertLineJob(Job *parent,
                          const MandelImage &image,int x,int y,unsigned int *d,
-                         double re,double im,int size_y)
-    : VertLineJob(parent,image,x,y,d,re,im,size_y) {}
+                         const Complex<double> &re_im,int size_y)
+    : VertLineJob(parent,image,x,y,d,re_im,size_y) {}
 private:
   void print(std::ostream &o) const {
     o << "RecalcLimitVertLineJob(" << x << ',' << y << ',' << size << ')';
@@ -315,12 +325,13 @@ private:
 
 inline VertLineJob *VertLineJob::create(Job *parent,
                                         const MandelImage &image,int x,int y,
-                                        unsigned int *d,double re,double im,
+                                        unsigned int *d,
+                                        const Complex<double> &re_im,
                                         int size_y) {
   return
      (image.recalc_limit > 0)
-   ? new RecalcLimitVertLineJob(parent,image,x,y,d,re,im,size_y)
-   : new VertLineJob(parent,image,x,y,d,re,im,size_y);
+   ? new RecalcLimitVertLineJob(parent,image,x,y,d,re_im,size_y)
+   : new VertLineJob(parent,image,x,y,d,re_im,size_y);
 }
 
 bool RecalcLimitVertLineJob::execute(void) {
@@ -328,13 +339,12 @@ bool RecalcLimitVertLineJob::execute(void) {
   VECTOR_TYPE mi[VECTOR_SIZE];
   unsigned int tmp[VECTOR_SIZE];
   unsigned int *pos[VECTOR_SIZE];
-  for (int i=0;i<VECTOR_SIZE;i++) mr[i] = re;
   unsigned int *d = VertLineJob::d;
   int y = VertLineJob::y;
   int size_y = VertLineJob::size;
   int vector_count = 0;
   int count = 0;
-  for (;size_y>0;size_y--,d+=image.screen_width,y++,im+=image.d_re_im) {
+  for (;size_y>0;size_y--,d+=image.screen_width,y++,re_im+=image.d_re_im.cross()) {
     if (terminate_flag) {
         // if max_iter has increased, mark remaining black pixels dirty:
       if (image.max_iter > image.recalc_limit) {
@@ -352,7 +362,7 @@ bool RecalcLimitVertLineJob::execute(void) {
       image.thread_pool.queueJob(new RecalcLimitVertLineJob(
                                        getParent(),image,x,y+size_y0,
                                        d+size_y0*image.screen_width,
-                                       re,im+size_y0*image.d_re_im,
+                                       re_im+size_y0*image.d_re_im.cross(),
                                        size_y-size_y0));
       VertLineJob::size -= (size_y-size_y0);
       size_y = size_y0;
@@ -360,7 +370,8 @@ bool RecalcLimitVertLineJob::execute(void) {
       // process pixel at (re,im)=(x,y)=*d
     if (image.needRecalc(*d)) {
       pos[vector_count] = d;
-      mi[vector_count] = image.start_im+im;
+      mr[vector_count] = image.start.re+re_im.re;
+      mi[vector_count] = image.start.im+re_im.im;
       vector_count++;
       if (vector_count >= VECTOR_SIZE) {
         vector_count = 0;
@@ -391,7 +402,6 @@ bool VertLineJob::execute(void) {
   if (size <= 0) ABORT();
   VECTOR_TYPE mr[VECTOR_SIZE];
   VECTOR_TYPE mi[VECTOR_SIZE];
-  for (int i=0;i<VECTOR_SIZE;i++) mr[i] = re;
   unsigned int tmp[VECTOR_SIZE];
   unsigned int *d = VertLineJob::d;
   int size_y = VertLineJob::size;
@@ -404,7 +414,7 @@ bool VertLineJob::execute(void) {
       image.thread_pool.queueJob(new VertLineJob(
                                        getParent(),image,x,y+size_y0,
                                        d+size_y0*image.screen_width,
-                                       re,im+size_y0*image.d_re_im,
+                                       re_im+size_y0*image.d_re_im.cross(),
                                        size_y-size_y0));
 //if (x == 399)
 //cout << "VertLineJob: split off: " << y+size_y0 << ", " << size_y-size_y0
@@ -413,8 +423,9 @@ bool VertLineJob::execute(void) {
       size_y = size_y0;
       if (size_y <= VECTOR_SIZE) break;
     }
-    for (int j=0;j<VECTOR_SIZE;j++,im+=image.d_re_im) {
-      mi[j] = image.start_im+im;
+    for (int j=0;j<VECTOR_SIZE;j++,re_im+=image.d_re_im.cross()) {
+      mr[j] = image.start.re+re_im.re;
+      mi[j] = image.start.im+re_im.im;
     }
     JULIA_FUNC(mr,mi,image.max_iter,tmp);
     count += VECTOR_SIZE;
@@ -423,8 +434,9 @@ bool VertLineJob::execute(void) {
     }
   }
   if (terminate_flag) goto exit_loop;
-  for (int j=0;j<VECTOR_SIZE;j++,im+=image.d_re_im) {
-    mi[j] = image.start_im+im;
+  for (int j=0;j<VECTOR_SIZE;j++,re_im+=image.d_re_im.cross()) {
+    mr[j] = image.start.re+re_im.re;
+    mi[j] = image.start.im+re_im.im;
   }
   JULIA_FUNC(mr,mi,image.max_iter,tmp);
   count += size_y;
@@ -519,15 +531,8 @@ public:
               const MandelImage &image,int x,int y,int size_x,int size_y)
     : ChildJob(parent),image(image),x(x),y(y),
       d(image.data+y*image.screen_width+x),
-      re(x*image.d_re_im),im(y*image.d_re_im),
-//      re(x*image.d_re_im+image.start_re),im(y*image.d_re_im+image.start_im),
+      re_im(Complex<double>(x,y)*image.d_re_im),
       size_x(size_x),size_y(size_y) {}
-//  FullRectJob(Job *parent,
-//              const MandelImage &image,int x,int y,unsigned int *d,
-//              double re,double im,int size_x,int size_y)
-//    : ChildJob(parent),image(image),x(x),y(y),
-//      d(d),re(re),im(im),
-//      size_x(size_x),size_y(size_y) {}
   void *operator new(size_t size) {
     if (size != sizeof(VertLineJob)) ABORT();
     void *const rval = free_list.pop();
@@ -543,7 +548,7 @@ private:
   const int x;
   const int y;
   unsigned int *const d;
-  double re,im;
+  Complex<double> re_im;
   const int size_x;
   const int size_y;
   static FreeList free_list;
@@ -554,8 +559,8 @@ FreeList FullRectJob::free_list;
 bool FullRectJob::execute(void) {
   unsigned int *d = FullRectJob::d;
   int w = size_x & (~(VECTOR_SIZE-1));
-  double yh = im;
-  for (int j=0;j<size_y;j++,d+=image.screen_width,yh+=image.d_re_im) {
+  Complex<double> yh = re_im;
+  for (int j=0;j<size_y;j++,d+=image.screen_width,yh+=image.d_re_im.cross()) {
     if (terminate_flag) {
       if (image.recalc_limit > 0 && image.max_iter > image.recalc_limit) {
           // mark remaining black pixels dirty:
@@ -570,11 +575,11 @@ bool FullRectJob::execute(void) {
     }
     image.thread_pool.queueJob(
                         HorzLineJob::create(
-                          this,image,x,y+j,d,re,yh+image.start_im,w));
+                          this,image,x,y+j,d,yh,w));
   }
   d = FullRectJob::d+w;
-  re += w*image.d_re_im;
-  for (;w<size_x;w++,d++,re+=image.d_re_im) {
+  re_im += w*image.d_re_im;
+  for (;w<size_x;w++,d++,re_im+=image.d_re_im) {
     if (terminate_flag) {
       if (image.recalc_limit > 0 && image.max_iter > image.recalc_limit) {
           // mark remaining black pixels dirty:
@@ -590,7 +595,7 @@ bool FullRectJob::execute(void) {
     }
     image.thread_pool.queueJob(
                         VertLineJob::create(
-                          this,image,x+w,y,d,re+image.start_re,im,size_y));
+                          this,image,x+w,y,d,re_im,size_y));
   }
   return false;
 }
@@ -785,6 +790,24 @@ MainJob::MainJob(const MandelImage &image,
 
 MainJob::~MainJob(void) {
 //  cout << "MainJob::~MainJob" << endl;
+/*
+  if (!terminate_flag) {
+      // find the greatest value < max_iter
+    unsigned int better_max = image.findGreatestValueNotMax(size_x,size_y);
+    cout << "MainJob::~MainJob: findGreatestValueNotMax: " << better_max << endl;
+    int highest_bit = 0;
+    for (int i=better_max+1;i>1;i>>=1) {highest_bit++;}
+    if (highest_bit > 9) {
+      highest_bit -= 9;
+      better_max = (better_max+(1<<highest_bit))
+                 & ((~0)<<highest_bit);
+    } else {
+      better_max++;
+    }
+    cout << "MainJob::~MainJob: better_max: " << better_max << endl;
+    image.max_iter = better_max;
+  }
+*/
   image.thread_pool.mainJobHasTerminated();
 }
 

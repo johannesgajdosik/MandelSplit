@@ -28,15 +28,16 @@ adb logcat mandel-split:D *:S DEBUG:I
 ~/android/android-ndk-r9/ndk-build -j8 && ant debug && adb install -r bin/MandelSplit-debug.apk && adb logcat mandel-split:D *:S
 
 Release:
-~/android/android-ndk-r9/ndk-build -j8
-ant release
+rm bin/MandelSplit-0.1.1.apk
+
+~/android/android-ndk-r9/ndk-build -j8 && \
+ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
-bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release
-rm bin/MandelSplit-0.1.1.apk
-~/android/android-sdk-linux/tools/zipalign -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.1.apk
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.1.apk
-adb install -r bin/MandelSplit-0.1.1.apk
+bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.2.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.2.apk && \
+adb install -r bin/MandelSplit-0.1.2.apk
 
 
 */
@@ -48,6 +49,8 @@ adb install -r bin/MandelSplit-0.1.1.apk
 
 #include "GlResourceCache.H"
 #include "GlunaticUI/Font.H"
+
+#include <boost/bind.hpp>
 
 #include <android/native_activity.h>
 #include <android/input.h>
@@ -298,10 +301,6 @@ static bool LinkProgram(GLuint &program) {
 
 
 class MNA : public MyNativeActivity {
-  struct SavedState {
-    double center_re,center_im,size_re_im;
-    int max_iter;
-  };
 public: 
   MNA(ANativeActivity *activity,
       void *savedState,size_t savedStateSize);
@@ -310,15 +309,30 @@ private:
   void initializeFont(const char *font_file,float font_size);
   void *onSaveInstanceState(size_t &outSize);
   int32_t onInputEvent(AInputEvent *event);
+  int minimizeMaxIter(void);
   void maxIterChanged(int x);
   void maxIterStartStop(int start_stop);
-  void displayInfo(int enable_info) {
-    enable_display_info = enable_info;
-    draw_once = true;
+  void displayInfo(bool enable) {
+    if (enable_display_info != enable) {
+      enable_display_info = enable;
+      draw_once = true;
+    }
+  }
+  void enableTurning(bool enable) {
+    if (enable_turning != enable) {
+      enable_turning = enable;
+      if (!enable_turning) {
+        if (mandel_drawer.disableRotation()) {
+          //performHapticFeedback();
+          mandel_drawer.startRecalc();
+        }
+      }
+    }
   }
   void startMouseDrag(void);
   void finishMouseDrag(void);
   void performMouseDrag(void);
+  void longPressFinished(void);
   void printText(float pos_x,float pos_y,const char *text) const;
   void main(void);
 private:
@@ -329,20 +343,25 @@ private:
   GLuint program;
   GLuint contents_texture;
   GLint uniform_loc_factors;
+  GLint uniform_loc_dimming;
 
   int pointer_id[2];
   Vector<float,2> pointer_2d[2];
-  Vector<double,2> drag_start_pos;
-  double drag_start_scale;
-  float drag_start_distanceq;
+  Complex<double> drag_start_pos[2];
   int max_iter_slider_value;
   MandelDrawer mandel_drawer;
   GlunaticUI::Font font;
-  int64_t tap_start_time;
-  Vector<float,2> tap_start_pos;
-  bool tap_moved;
+  long long int long_press_start_time;
+  Vector<float,2> long_press_start_pos;
   bool draw_once;
   bool enable_display_info;
+  bool enable_turning;
+private:
+  struct SavedState {
+    MandelDrawer::Parameters params;
+    bool enable_display_info;
+    bool enable_turning;
+  };
 };
 
 extern "C" {
@@ -370,8 +389,10 @@ MNA::MNA(ANativeActivity *activity,
          void *savedState,size_t savedStateSize)
     :MyNativeActivity(activity),program(0) {
   max_iter_slider_value = 0;
+  long_press_start_time = 0;
   draw_once = false;
   enable_display_info = true;
+  enable_turning = false;
   initializeFont("DejaVuSans.ttf",floorf(sqrtf(getScreenHeight())));
 
 #define FLAG_KEEP_SCREEN_ON 0x80
@@ -431,10 +452,18 @@ MNA::MNA(ANativeActivity *activity,
       ABORT();
     }
     cout << "resetting from saved instance state" << endl;
-    mandel_drawer.reset(((SavedState*)savedState)->center_re,
-                        ((SavedState*)savedState)->center_im,
-                        ((SavedState*)savedState)->size_re_im,
-                        ((SavedState*)savedState)->max_iter);
+    enable_display_info = ((SavedState*)savedState)->enable_display_info;
+    enable_turning = ((SavedState*)savedState)->enable_turning;
+    mandel_drawer.reset(((SavedState*)savedState)->params);
+
+  } else {
+    const int width = getScreenWidth();
+    const int height = getScreenHeight();
+    mandel_drawer.reset(MandelDrawer::Parameters(
+                          Complex<double>(-0.75,0.0),
+                          Complex<double>(2.5,0.0)/
+                            ((width<height)?width:height),
+                          512));
   }
 }
 
@@ -442,10 +471,9 @@ void *MNA::onSaveInstanceState(size_t &outSize) {
   cout << pthread_self() << " MNA::onSaveInstanceState" << endl;
   outSize = sizeof(SavedState);
   SavedState *rval = (SavedState*)malloc(sizeof(SavedState));
-  rval->center_re = mandel_drawer.getCenterRe();
-  rval->center_im = mandel_drawer.getCenterIm();
-  rval->size_re_im = mandel_drawer.getSizeReIm();
-  rval->max_iter = mandel_drawer.getMaxIter();
+  mandel_drawer.getParameters(rval->params);
+  rval->enable_display_info = enable_display_info;
+  rval->enable_turning = enable_turning;
   return rval;
 }
 
@@ -491,14 +519,16 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
                 // the system needs this for handling the "back" button,
                 // do not handle
               break;
-            case AKEYCODE_MENU:
-              showMaxIterDialog(mandel_drawer.getMaxIter(),
-                                mandel_drawer.getCenterRe(),
-                                mandel_drawer.getCenterIm(),
-                                mandel_drawer.XYToReImScale(),
-                                enable_display_info);
+            case AKEYCODE_MENU: {
+              MandelDrawer::Parameters p;
+              mandel_drawer.getParameters(p);
+              showMaxIterDialog(p.max_iter,
+                                p.center,
+                                p.unity_pixel,
+                                enable_display_info,
+                                enable_turning);
 //              cout << "here comes my menu" << endl;
-              return 1;
+            } return 1;
           }
         } break;
         case AKEY_EVENT_ACTION_MULTIPLE:
@@ -518,6 +548,7 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
                 >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
           const int32_t p_id
             = AMotionEvent_getPointerId(event,p_index);
+          if (p_id < 0) ABORT();
           if (pointer_id[0] >= 0) {
             if (pointer_id[1] >= 0) {
               // not interested in 3rd or 4th finger
@@ -527,17 +558,19 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
               pointer_2d[1][1] = AMotionEvent_getY(event,p_index);
               startMouseDrag();
             }
-            tap_moved = true;
+            long_press_start_time = 0;
+            draw_once = true;
 //            cout << "no tap because of second pointer" << endl;
           } else {
             pointer_id[0] = p_id;
             pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
             pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
             startMouseDrag();
-            tap_moved = false;
-            tap_start_time = AMotionEvent_getEventTime(event);
-            tap_start_pos = pointer_2d[0];
-//            cout << "tap started: " << tap_start_pos << endl;
+            long_press_start_time = GetNow();
+            callFromJavaThread(boost::bind(&MNA::longPressFinished,this),
+                               300);
+            long_press_start_pos = pointer_2d[0];
+//            cout << "tap started: " << long_press_start_pos << endl;
           }
         } break;
         case AMOTION_EVENT_ACTION_UP:
@@ -548,20 +581,22 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
           const int32_t p_id
             = AMotionEvent_getPointerId(event,p_index);
           if (p_id == pointer_id[0]) {
-            if (pointer_id[1] < 0 && !tap_moved &&
-                AMotionEvent_getEventTime(event) <
-                  tap_start_time + 600*1000000LL) {
-                  showMaxIterDialog(mandel_drawer.getMaxIter(),
-                                    mandel_drawer.getCenterRe(),
-                                    mandel_drawer.getCenterIm(),
-                                    mandel_drawer.XYToReImScale(),
-                                    enable_display_info);
-            } else {
-              pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
-              pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
-            }
             pointer_id[0] = -1;
-            finishMouseDrag();
+            pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
+            pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
+            if (long_press_start_time != 0 && pointer_id[1] < 0) {
+              long_press_start_time = 0;
+              draw_once = true;
+              MandelDrawer::Parameters p;
+              mandel_drawer.getParameters(p);
+              showMaxIterDialog(p.max_iter,
+                                p.center,
+                                p.unity_pixel,
+                                enable_display_info,
+                                enable_turning);
+            } else {
+              finishMouseDrag();
+            }
           } else if (p_id == pointer_id[1]) {
             pointer_id[1] = -1;
             pointer_2d[1][0] = AMotionEvent_getX(event,p_index);
@@ -576,10 +611,11 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
             if (p_id == pointer_id[0]) {
               const Vector<float,2> curr_pos(AMotionEvent_getX(event,p_index),
                                              AMotionEvent_getY(event,p_index));
-              if (tap_moved) {
+              if (long_press_start_time == 0) {
                 pointer_2d[0] = curr_pos;
-              } else if ((curr_pos-tap_start_pos).length2() >= 1.4f) {
-                tap_moved = true;
+              } else if ((curr_pos-pointer_2d[0]).length2() >= 5.f) {
+                long_press_start_time = 0;
+                draw_once = true;
                 pointer_2d[0] = curr_pos;
               }
             } else if (p_id == pointer_id[1]) {
@@ -587,7 +623,7 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
               pointer_2d[1][1] = AMotionEvent_getY(event,p_index);
             }
           }
-          if (tap_moved) performMouseDrag();
+          if (long_press_start_time == 0) performMouseDrag();
         } break;
       }
     } return 1; // handled
@@ -599,47 +635,62 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
 
 void MNA::startMouseDrag(void) {
   if (pointer_id[0] >= 0) {
-    if (pointer_id[1] >= 0) {
-      mandel_drawer.XYToReIm(0.5f*(pointer_2d[0]+pointer_2d[1]),drag_start_pos);
-      drag_start_distanceq = (pointer_2d[0]-pointer_2d[1]).length2();
-    } else {
-      mandel_drawer.XYToReIm(pointer_2d[0],drag_start_pos);
-    }
-  } else {
-    mandel_drawer.XYToReIm(pointer_2d[1],drag_start_pos);
+    drag_start_pos[0] = mandel_drawer.XYToReIm(pointer_2d[0]);
   }
-  drag_start_scale = mandel_drawer.XYToReImScale();
+  if (pointer_id[1] >= 0) {
+    drag_start_pos[1] = mandel_drawer.XYToReIm(pointer_2d[1]);
+  }
 }
 
 void MNA::finishMouseDrag(void) {
   if (pointer_id[0] >= 0 || pointer_id[1] >= 0) {
     startMouseDrag();
   } else {
-    mandel_drawer.startRecalc();
+    if (long_press_start_time == 0) {
+      //performHapticFeedback();
+      mandel_drawer.startRecalc();
+    }
   }
 }
 
 void MNA::performMouseDrag(void) {
   if (pointer_id[0] >= 0) {
     if (pointer_id[1] >= 0) {
-      const float dq = (pointer_2d[0]-pointer_2d[1]).length2();
-      mandel_drawer.fitReIm(
-                      (pointer_2d[0]+pointer_2d[1])*0.5f,drag_start_pos,
-                      drag_start_scale*sqrtf(drag_start_distanceq/dq));
-//      double h = mandel_drawer.XYToReImScale();
-  //    h = -log(h);
-  //    double hs = sqrt(h);
-  //    h = h*h*h*h;
-
-//      h = sqrt(10.0/h);
-//      int n = (int)(h);
-//      mandel_drawer.setMaxIter(200+n);
+      mandel_drawer.fitReIm(pointer_2d[0],pointer_2d[1],
+                            drag_start_pos[0],drag_start_pos[1],
+                            enable_turning);
     } else {
-      mandel_drawer.fitReIm(pointer_2d[0],drag_start_pos);
+      mandel_drawer.fitReIm(pointer_2d[0],drag_start_pos[0]);
     }
   } else {
-    mandel_drawer.fitReIm(pointer_2d[1],drag_start_pos);
+    if (pointer_id[1] >= 0) {
+      mandel_drawer.fitReIm(pointer_2d[1],drag_start_pos[1]);
+    }
   }
+}
+
+void MNA::longPressFinished(void) {
+  if (pointer_id[0] >= 0 && pointer_id[1] < 0 &&
+      long_press_start_time != 0 &&
+      (pointer_2d[0]-long_press_start_pos).length2() <= 13.f) {
+    performHapticFeedback();
+    pointer_id[0] = -1;
+//    finishMouseDrag();
+    long_press_start_time = 0;
+    draw_once = true;
+    MandelDrawer::Parameters p;
+    mandel_drawer.getParameters(p);
+    showMaxIterDialog(p.max_iter,
+                      p.center,
+                      p.unity_pixel,
+                      enable_display_info,
+                      enable_turning);
+  }
+}
+
+
+int MNA::minimizeMaxIter(void) {
+  return mandel_drawer.minimizeMaxIter();
 }
 
 void MNA::maxIterChanged(int x) {
@@ -649,6 +700,7 @@ void MNA::maxIterChanged(int x) {
 void MNA::maxIterStartStop(int start_stop) {
   if (!start_stop) {
     mandel_drawer.setMaxIter(max_iter_slider_value);
+    //performHapticFeedback();
     mandel_drawer.startRecalc();
   }
 }
@@ -683,6 +735,7 @@ static const char fragment_shader[] =
 //    "precision lowp float;\n"
     "uniform sampler2D contents_texture;\n"
     "uniform vec4 factors;\n"
+    "uniform vec4 dimming;\n"
     "varying vec2 v_texcoor;\n"
     "void main() {\n"
     "  const vec4 potences = vec4(4.0/256.0,4.0,4.0*256.0,0.0);\n"
@@ -691,9 +744,9 @@ static const char fragment_shader[] =
     "  v *= potences;\n"
     "  gl_FragColor = (val >= factors.a)\n"
                   " ? vec4(0.0,0.0,0.0,0.0)\n"
-                  " : fract(fract(v.rrra*factors)"
-                          "+fract(v.ggga*factors)"
-                          "+fract(v.bbba*factors));\n"
+                  " : dimming * fract(fract(v.rrra*factors)"
+                                    "+fract(v.ggga*factors)"
+                                    "+fract(v.bbba*factors));\n"
     "}\n";
 
 
@@ -844,6 +897,7 @@ turn range[0] = 31, range[1] = 30, and ∗precision = 0.
     const GLint uniform_loc_contents_texture
                   = glGetUniformLocation(program,"contents_texture");
     uniform_loc_factors = glGetUniformLocation(program,"factors");
+    uniform_loc_dimming = glGetUniformLocation(program,"dimming");
     CheckGlError("glGetUniformLocation");
 
     glUseProgram(program);
@@ -905,20 +959,29 @@ CheckGlError("main 100");
     CheckGlError("glClear");
     glDisable(GL_BLEND);
 
+    GLfloat entire_screen[8];
+    MandelDrawer::Parameters params;
+    mandel_drawer.getOpenGLScreenCoordinates(entire_screen,params);
     {
-      const float h = 1.f/cbrtf(mandel_drawer.getMaxIter());
+      const float h = 1.f/cbrtf(params.max_iter);
+      float dim_factor = 1.f;
+      if (long_press_start_time != 0) {
+        // dim
+        dim_factor = 3e-6f*(long_press_start_time+450000LL-GetNow());
+        if (dim_factor > 1.f) dim_factor = 1.f;
+        else if (dim_factor < 0.f) dim_factor = 0.f;
+      }
+      glUniform4f(uniform_loc_dimming,dim_factor,dim_factor,dim_factor,1.f);
       const GLfloat color_factors[4] = {
-        64.f*256.f/mandel_drawer.getMaxIter(),
+        64.f*256.f/params.max_iter,
         64.f*256.f*h*h,
         64.f*256.f*h,
-        (mandel_drawer.getMaxIter()-0.5)*(1.f/(64.f*255.9f))
+        (params.max_iter)*(1.f/(64.f*256.f))
       };
       glUniform4fv(uniform_loc_factors,1,color_factors);
     }
     glEnableVertexAttribArray(position_location);
     glEnableVertexAttribArray(texcoor_location);
-    GLfloat entire_screen[8];
-    mandel_drawer.getOpenGLScreenCoordinates(entire_screen);
     glVertexAttribPointer(position_location,2,GL_FLOAT,GL_FALSE,0,
                           entire_screen);
     glVertexAttribPointer(texcoor_location,2,GL_FLOAT,GL_FALSE,0,
@@ -937,19 +1000,25 @@ CheckGlError("main 100");
         const float h = floorf(1.2f*font.getHeight());
         char tmp[128];
         snprintf(tmp,sizeof(tmp),"max iter: %d",
-                 mandel_drawer.getMaxIter());
+                 params.max_iter);
         printText(10,6+2*h,tmp);
-        const double pixel_size = mandel_drawer.XYToReImScale();
-        snprintf(tmp,sizeof(tmp),"size: %4.2e x %4.2e",
-                 width*pixel_size,
-                 height*pixel_size);
+        const double pixel_size = sqrt(params.unity_pixel.length2());
+        if (enable_turning) {
+          const double pixel_angle = -(180.0/M_PI)*atan2(params.unity_pixel.im,
+                                                         params.unity_pixel.re);
+          snprintf(tmp,sizeof(tmp),"display: %4.2ex%4.2e; %.1f\xb0",
+                   width*pixel_size,height*pixel_size,pixel_angle);
+        } else {
+          snprintf(tmp,sizeof(tmp),"display: %4.2ex%4.2e",
+                   width*pixel_size,height*pixel_size);
+        }
         printText(10,6+h,tmp);
         const int prec = -(int)floor(log10(pixel_size));
-        snprintf(tmp,sizeof(tmp),"center: %*.*f +i* %*.*f",
+        snprintf(tmp,sizeof(tmp),"center: %*.*f%+*.*f*i",
                  prec+2,prec,
-                 mandel_drawer.getCenterRe(),
+                 params.center.re,
                  prec+2,prec,
-                 mandel_drawer.getCenterIm());
+                 params.center.im);
         printText(10,6,tmp);
       }
       if (progress < 1.f) {

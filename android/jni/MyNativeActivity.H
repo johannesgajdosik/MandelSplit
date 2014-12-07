@@ -21,9 +21,13 @@
 #ifndef MY_NATIVE_ACTIVITY_H_
 #define MY_NATIVE_ACTIVITY_H_
 
+#include "Mutex.H"
+#include "Vector.H"
 #include <pthread.h>
 
 #include <string>
+#include <map>
+#include <boost/function.hpp>
 
 #include <jni.h>
 
@@ -72,10 +76,12 @@ public:
   int getSdkVersion(void) const;
   void callJavaFinish(void);
   void setRequestedOrientation(AndroidScreenOrientation x) const;
-  void showMaxIterDialog(int curr_value,
-                         double center_re,double center_im,
-                         double d_re_im,
-                         int info_enabled) const;
+  void showMaxIterDialog(int max_iter,
+                         const Complex<double> &center,
+                         const Complex<double> &unity_pixel,
+                         bool info_enabled,
+                         bool turning_enabled) const;
+  void performHapticFeedback(void) const;
   void showDialog(int id) const;
   void showToast(const char *text,bool long_duration) const;
   int getFuncResult(const char *func_name) const;
@@ -84,9 +90,15 @@ public:
   int getScreenHeight(void) const;
   void setSystemUiVisibility(int visibility);
   void addWindowFlags(int flags);
+  virtual int minimizeMaxIter(void) {return 8;}
   virtual void maxIterChanged(int x) {}
   virtual void maxIterStartStop(int start_stop) {}
-  virtual void displayInfo(int enable_info) {}
+  virtual void displayInfo(bool enable) {}
+  virtual void enableTurning(bool enable) {}
+  void callFromJavaThread(const boost::function<void(void)> &f,
+                          int delay_millis);
+    // internal function, do not call:
+  void calledFromJava(int index);
 protected:
   virtual void onResume(void);
   virtual void onPause(void);
@@ -137,6 +149,11 @@ private:
   jmethodID mid_getRotation;
   jmethodID mid_getWidth;
   jmethodID mid_getHeight;
+  
+  int java_cb_map_sequence;
+  typedef std::map<int,boost::function<void(void)> > JavaCbMap;
+  JavaCbMap java_cb_map;
+  Mutex java_cb_map_mutex;
 protected:
   bool continue_looping;
 };

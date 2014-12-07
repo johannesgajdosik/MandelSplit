@@ -24,6 +24,11 @@
 #include "Logger.H"
 
 #include "GLee.h"
+#if !defined(__ANDROID__) && defined(Complex)
+  // X.h defines Complex as a macro for Polygon shapes
+#undef Complex
+#endif
+
 
 #include <unistd.h> // sysconf
 
@@ -31,9 +36,8 @@
 
 void CheckGlError(const char *description);
 
-static const double default_center_x = -0.75;
-static const double default_center_y = 0;
-static const double default_size_xy = 2.5;
+static const Complex<double> default_center(-0.75,0);
+static const Complex<double> default_unity_pixel(1.0/256,0);
 static const int default_max_iter = 512;
 
 static
@@ -81,34 +85,24 @@ int GetNrOfProcessors(void) {
 MandelDrawer::MandelDrawer(void)
              :threads(new ThreadPool(GetNrOfProcessors())),
               image(0),
-              center_x(default_center_x),
-              center_y(default_center_y),
-              size_xy(default_size_xy),
-              max_iter(default_max_iter),
-              new_parameters(true),
-              new_max_iter(true),
-              new_size_xy(true),
+              parameters_changed(true),
+              max_iter_changed(true),
+              unity_pixel_changed(true),
               was_working_last_time(false) {
 }
 
-void MandelDrawer::reset(void) {
-  reset(default_center_x,default_center_y,default_size_xy,default_max_iter);
-}
-
-void MandelDrawer::reset(double center_re,double center_im,double size_re_im,
-                         unsigned int max_iter) {
-  if (center_x != center_re ||
-      center_y != center_im) {
-    center_x = center_re;
-    center_y = center_im;
-    new_parameters = true;
+void MandelDrawer::reset(const Parameters &p) {
+  MutexLock lock(mutex);
+  if (params.center != p.center) {
+    params.center = p.center;
+    parameters_changed = true;
   }
-  if (size_xy != size_re_im) {
-    size_xy = size_re_im;
-    new_parameters = true;
-    new_size_xy = true;
+  if (params.unity_pixel != p.unity_pixel) {
+    params.unity_pixel = p.unity_pixel;
+    parameters_changed = true;
+    unity_pixel_changed = true;
   }
-  setMaxIter(max_iter);
+  setMaxIterPrivate(p.max_iter);
 }
 
 void MandelDrawer::initialize(int width,int height) {
@@ -129,92 +123,204 @@ void *MandelDrawer::getImageData(void) const {
   return image->data;
 }
 
-unsigned int MandelDrawer::getMaxIter(void) const {
-  return max_iter;
-}
+//unsigned int MandelDrawer::getMaxIter(void) const {
+//  return max_iter;
+//}
 
 void MandelDrawer::sizeChanged(int w,int h) {
   if (w != width || h != height) {
     width = w;
     height = h;
-    new_parameters = true;
-    new_size_xy = true;
+    parameters_changed = true;
+    unity_pixel_changed = true;
   }
 }
 
-void MandelDrawer::setMaxIter(unsigned int n) {
+void MandelDrawer::setMaxIterPrivate(unsigned int n) {
   if (n > 0xFFFFFF) {
     n = 0xFFFFFF;
   } else if (n < 8) {
     n = 8;
   }
-  if (max_iter != n) {
-    max_iter = n;
-    new_max_iter = true;
+  if (params.max_iter != n) {
+    params.max_iter = n;
+    max_iter_changed = true;
   }
+}
+
+int MandelDrawer::minimizeMaxIter(void) {
+    // find the greatest value < max_iter
+  unsigned int better_max = image->findGreatestValueNotMax(width,height);
+  cout << "MandelDrawer::minimizeMaxIter: findGreatestValueNotMax: " << better_max << endl;
+  int highest_bit = 0;
+  for (int i=better_max+1;i>1;i>>=1) {highest_bit++;}
+  if (highest_bit > 9) {
+    highest_bit -= 9;
+    better_max = (better_max+(1<<highest_bit))
+               & ((~0)<<highest_bit);
+  } else {
+    better_max++;
+  }
+  cout << "MandelDrawer::minimizeMaxIter: better_max: " << better_max << endl;
+  setMaxIter(better_max);
+  return better_max;
 }
 
 void MandelDrawer::startRecalc(void) {
-  new_parameters = true;
+  parameters_changed = true;
 }
 
-void MandelDrawer::XYToReIm(const Vector<float,2> &screen_pos,
-                            Vector<double,2> &re_im_pos) const {
-  const double d_re_im = XYToReImScale();
-  re_im_pos[0] = center_x + d_re_im * (screen_pos[0] - 0.5*width);
-  re_im_pos[1] = center_y + d_re_im * (height-1-screen_pos[1] - 0.5*height);
+//const Vector<float,2> MandelDrawer::ReImToXY(
+//                        const Complex<double> &re_im_pos) const {
+//  const Complex<float> tmp((re_im_pos - center)/unity_pixel);
+//  return Vector<float,2>(tmp.re + 0.5f*width,
+//                         0.5f*height - 1.f - tmp.im);
+//}
+
+Complex<double> MandelDrawer::XYToReIm(
+                  const Vector<float,2> &screen_pos) const {
+  MutexLock lock(mutex);
+  return params.center
+          + params.unity_pixel
+          * Complex<float>(screen_pos[0] - 0.5f*width,
+                           height-1-screen_pos[1] - 0.5f*height);
 }
 
-double MandelDrawer::XYToReImScale(void) const {
-  return size_xy / ((width<height)?width:height);
+void MandelDrawer::fitReImPrivate(const Vector<float,2> &screen_pos,
+                                  const Complex<double> &re_im_pos) {
+  params.center = re_im_pos
+                - params.unity_pixel
+                * Complex<float>(screen_pos[0] - 0.5f*width,
+                                 height-1-screen_pos[1] - 0.5f*height);
+  {
+    double h = params.center.length2();
+    if (h > 4.0) {
+      h = 2.0/sqrt(h);
+      params.center *= h;
+    }
+  }
+  params.center /= params.unity_pixel;
+  params.center.re = floor(0.5 + params.center.re);
+  params.center.im = floor(0.5 + params.center.im);
+  params.center *= params.unity_pixel;
+//cout << "fitReIm(" << screen_pos
+//                   << " -> " << re_im_pos
+//                   << "): " << params.center
+//                   << ';' << params.unity_pixel << endl;
 }
 
 void MandelDrawer::fitReIm(const Vector<float,2> &screen_pos,
-                           const Vector<double,2> &re_im_pos) {
-  const double d_re_im = XYToReImScale();
-  center_x = re_im_pos[0] - d_re_im * (screen_pos[0] - 0.5*width); 
-  center_y = re_im_pos[1] - d_re_im * (height-1-screen_pos[1] - 0.5*height);
-  double h = center_x*center_x+center_y*center_y;
-  if (h > 4.0) {
-    h = 2.0/sqrt(h);
-    center_x *= h;
-    center_y *= h;
-  }
-  center_x = d_re_im * floor(0.5 + center_x / d_re_im);
-  center_y = d_re_im * floor(0.5 + center_y / d_re_im);
+                           const Complex<double> &re_im_pos) {
+  MutexLock lock(mutex);
+  fitReImPrivate(screen_pos,re_im_pos);
 }
 
-void MandelDrawer::fitReIm(const Vector<float,2> &screen_pos,
-                           const Vector<double,2> &re_im_pos,
-                           double scale) {
-  if (scale < 1e-16) scale = 1e-16;
-  scale *= ((width<height)?width:height);
-  if (scale > 4.0) scale = 4.0;
-  if (size_xy != scale) {
-    size_xy = scale;
-    new_size_xy = true;
+const double epsilon = 4.44e-16; // 2^-51
+const double epsilon2 = epsilon*epsilon;
+
+void MandelDrawer::fitReIm(const Vector<float,2> &screen_pos0,
+                           const Vector<float,2> &screen_pos1,
+                           const Complex<double> &re_im_pos0,
+                           const Complex<double> &re_im_pos1,
+                           bool enable_rotation) {
+  MutexLock lock(mutex);
+  const Complex<float> screen_diff(screen_pos1[0]-screen_pos0[0],
+                                   screen_pos0[1]-screen_pos1[1]);
+  const Complex<double> re_im_diff(re_im_pos1-re_im_pos0);
+  const double old_length2 = params.unity_pixel.length2();
+  Complex<double> new_unity_pixel;
+  if (enable_rotation) {
+    new_unity_pixel = re_im_diff / screen_diff;
+  } else {
+    const double factor = sqrt(re_im_diff.length2()
+                        / (screen_diff.length2()*old_length2));
+    new_unity_pixel = params.unity_pixel * factor;
   }
-  fitReIm(screen_pos,re_im_pos);
+  const double length2 = new_unity_pixel.length2();
+  const double max_length = 4.0/((width<height)?width:height);
+  const double min_length2 = epsilon2;
+  if (length2 > max_length*max_length) {
+    new_unity_pixel *= (max_length/sqrt(length2));
+  } else if (length2 < min_length2) {
+    new_unity_pixel *= sqrt(min_length2/length2);
+  }
+  if ( (params.unity_pixel-new_unity_pixel).length2() > epsilon2*length2) {
+    params.unity_pixel = new_unity_pixel;
+    if (enable_rotation || old_length2 != length2) {
+      unity_pixel_changed = true;
+    }
+  }
+  const Vector<float,2> screen_pos(0.5f*(screen_pos0+screen_pos1));
+  const Complex<double> re_im_pos(0.5*(re_im_pos0+re_im_pos1));
+  fitReImPrivate(screen_pos,re_im_pos);
+//cout << "fitReIm(" << screen_pos0 << ',' << screen_pos1
+//                   << " -> " << re_im_pos0 << ',' << re_im_pos1
+//                   << "): " << params.center
+//                   << ';' << params.unity_pixel << endl;
 }
 
-void MandelDrawer::getOpenGLScreenCoordinates(float coor[8]) const {
-  const float scale = XYToReImScale();
-  const float factor =  image->d_re_im / scale;
+bool MandelDrawer::disableRotation(void) {
+  MutexLock lock(mutex);
+  if (params.unity_pixel.im != 0.0 || params.unity_pixel.re < 0) {
+    params.unity_pixel.re = sqrt(params.unity_pixel.length2());
+    params.unity_pixel.im = 0.0;
+    unity_pixel_changed = true;
+    return true;
+  }
+  return false;
+}
 
-  coor[0] = 2.f*(image->start_re-center_x)/(width*scale);
-  coor[1] = 2.f*(image->start_im-center_y)/(height*scale);
-  coor[2] = coor[0]+2.f*factor;
-  coor[5] = coor[1]+2.f*factor;
+void MandelDrawer::getOpenGLScreenCoordinate(int i,int j,float coor[2]) const {
+  Complex<double> A(i,j);
+  A *= image->d_re_im;
+  A += image->start; // coordinates in Mandelbrot set
+  A -= params.center;
+  A /= params.unity_pixel;
+  coor[0] = (A.re*2.0) / width;
+  coor[1] = (A.im*2.0) / height;
+}
 
-  coor[3] = coor[1];
-  coor[4] = coor[0];
-  coor[6] = coor[2];
-  coor[7] = coor[5];
+void MandelDrawer::getOpenGLScreenCoordinates(float coor[8],
+                                              Parameters &p) const {
+/* The existing image was computed with
+    image->d_re_im = unity_pixel;
+    image->start = center - 0.5*unity_pixel * (width+sqrt(-1)*height);
+  and the texture was mapped to Opengl with
+    coor[0] = -1;
+    coor[1] = -1;
+    coor[6] = 1;
+    coor[7] = 1;
+    coor[2] = coor[6];
+    coor[3] = coor[1];
+    coor[4] = coor[0];
+    coor[5] = coor[7];
+  
+  In the meantime unity_pixel and center have changed.
+  How shall the existing texture be mapped?
+
+  An existing point in the image (i+width*j) has Mandelbrot coordinates
+    A = image->start+(i,j)*image->d_re_im;
+  This point A shall now be displayed on
+    ReImToXY(A)
+  So it needs the OpenGl coordinates
+    Complex<float> tmp = ((A - center)/unity_pixel) scaled by [w/h,1]
+*/
+  MutexLock lock(mutex);
+  getOpenGLScreenCoordinate(0,0,coor+0);
+  getOpenGLScreenCoordinate(width,0,coor+2);
+  getOpenGLScreenCoordinate(0,height,coor+4);
+  getOpenGLScreenCoordinate(width,height,coor+6);
+  p = params;
 
 //cout << "MandelDrawer::getOpenGLScreenCoordinates: "
 //     << coor[0] << '/' << coor[1] << ";  "
-//     << coor[2] << '/' << coor[5] << endl;
+//     << coor[6] << '/' << coor[7] << endl;
 }
+
+
+
+
+
 
 float MandelDrawer::getProgress(void) const {
   return image->pixel_count / (float)(width*height);
@@ -223,51 +329,52 @@ float MandelDrawer::getProgress(void) const {
 bool MandelDrawer::step(void) {
 //cout << "step: start" << endl;
   bool rval = true;
-  if (new_parameters || new_max_iter) {
+  if (parameters_changed || max_iter_changed) {
     __sync_synchronize();
 
     threads->cancelExecution();
     image->pixel_count = 0;
 
-    if (new_size_xy) {
+    if (unity_pixel_changed) {
       image->recalc_limit = 0;
     } else {
       image->recalc_limit = image->max_iter;
     }
-    image->max_iter = max_iter;
 
-//cout << "step: (re)starting work: new_size_xy:" << new_size_xy
+//cout << "step: (re)starting work: unity_pixel_changed:" << unity_pixel_changed
 //     << ", recalc_limit:" << image->recalc_limit
 //     << ", max_iter:" << image->max_iter
 //     << endl;
 
     { // re-scale MandelImage
-      float coor[8];
-      getOpenGLScreenCoordinates(coor);
+      Complex<double> K = image->d_re_im.inverse();
+      Complex<double> D;
+      {
+        MutexLock lock(mutex);
+        image->max_iter = params.max_iter;
+        D = (params.center - image->start) * K;
+        K *= params.unity_pixel;
+        image->d_re_im = params.unity_pixel;
+        image->start = params.center
+                     - 0.5*params.unity_pixel*Complex<double>(width,height);
+      }
+
       unsigned int *const new_data = new unsigned int[width*height];
       unsigned int *nd = new_data;
       for (int y=0;y<height;y++,nd+=width) {
-        double y_gl = (y+0.5)*(2.0/height) - 1.0;
-        if (y_gl < coor[1] || y_gl >= coor[5]) {
-          for (int x=0;x<width;x++) {
+        for (int x=0;x<width;x++) {
+          const Complex<double> A = D + K * Complex<double>(x - 0.5*(width-1),
+                                                            y - 0.5*(height-1));
+          const int xb = (int)floor(A.re);
+          const int yb = (int)floor(A.im);
+          if (xb < 0 || yb < 0 || width <= xb || height <= yb) {
             nd[x] = 0x80000000;
-          }
-        } else {
-          const int yb = (int)floor(height * (y_gl - coor[1])
-                                        / (coor[5] - coor[1]));
-          for (int x=0;x<width;x++) {
-            double x_gl = (x+0.5)*(2.0/width) - 1.0;
-            if (x_gl < coor[0] || x_gl >= coor[2]) {
-              nd[x] = 0x80000000;
+          } else {
+            if (unity_pixel_changed) {
+              nd[x] = image->data[yb*(image->screen_width)+xb] | 0x80000000;
             } else {
-              const int xb = (int)floor(width * (x_gl - coor[0])
-                                           / (coor[2] - coor[0]));
-              if (new_size_xy) {
-                nd[x] = image->data[yb*(image->screen_width)+xb] | 0x80000000;
-              } else {
-                nd[x] = image->data[yb*(image->screen_width)+xb];
-                if (!image->needRecalc(nd[x])) image->pixel_count++;
-              }
+              nd[x] = image->data[yb*(image->screen_width)+xb];
+              if (!image->needRecalc(nd[x])) image->pixel_count++;
             }
           }
         }
@@ -290,17 +397,13 @@ bool MandelDrawer::step(void) {
                       image->data);
       CheckGlError("after glTexSubImage2D 0");
     }
-    new_size_xy = false;
-
-    image->d_re_im = XYToReImScale();
-    image->start_re = center_x - 0.5*image->d_re_im * width;
-    image->start_im = center_y - 0.5*image->d_re_im * height;
+    unity_pixel_changed = false;
 
     threads->startExecution(new MainJob(*image,width,height));
 //cout << "step: startExecution: new MainJob queued" << endl;
     was_working_last_time = true;
-    new_parameters = false;
-    new_max_iter = false;
+    parameters_changed = false;
+    max_iter_changed = false;
   } else {
     if (was_working_last_time) {
       if (threads->workIsFinished()) {
@@ -308,6 +411,13 @@ bool MandelDrawer::step(void) {
         if (progress != 1.f) {
           ABORT();
         }
+MutexLock lock(mutex);
+params.max_iter = image->max_iter;
+
+
+
+
+
         // cout << "step: work finished" << endl;
         was_working_last_time = false;
       } else {

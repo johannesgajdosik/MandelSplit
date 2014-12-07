@@ -21,55 +21,83 @@
 #define MANDEL_DRAWER_H_
 
 #include "Vector.H"
+#include "Mutex.H"
 
 class MandelDrawer {
 public:
   MandelDrawer(void);
   ~MandelDrawer(void);
-  void reset(void);
-  void reset(double center_re,double center_im,double size_re_im,
-             unsigned int max_iter);
+  struct Parameters {
+    Parameters(void) {}
+    Parameters(const Complex<double> &center,
+               const Complex<double> &unity_pixel,
+               unsigned int max_iter)
+      : center(center),unity_pixel(unity_pixel),max_iter(max_iter) {}
+      // coordinates of image center in the Mandelbrot set:
+    Complex<double> center;
+      // points to one pixel right
+    Complex<double> unity_pixel;
+    unsigned int max_iter;
+  };
+  void reset(const Parameters &p);
+  void getParameters(Parameters &p) {
+    MutexLock lock(mutex);
+    p = params;
+  }
+  void setMaxIter(unsigned int n) {
+    MutexLock lock(mutex);
+    setMaxIterPrivate(n);
+  }
+  int minimizeMaxIter(void);
   void initialize(int width,int height);
   void sizeChanged(int w,int h);
   void *getImageData(void) const;
-  unsigned int getMaxIter(void) const;
-  void setMaxIter(unsigned int n);
-  double getCenterRe(void) const {return center_x;}
-  double getCenterIm(void) const {return center_y;}
-  double getSizeReIm(void) const {return size_xy;}
 
-    // get ReIm coordinates
-  void XYToReIm(const Vector<float,2> &screen_pos,
-                Vector<double,2> &re_im_pos) const;
-  double XYToReImScale(void) const;
-  void getOpenGLScreenCoordinates(float coor[8]) const;
+  int getWidth(void) const {return width;}
+  int getHeight(void) const {return height;}
+
+    // ReIm <-> screen coordinate conversion
+//  const Vector<float,2> ReImToXY(const Complex<double> &re_im_pos) const;
+  Complex<double> XYToReIm(const Vector<float,2> &screen_pos) const;
+
+  void getOpenGLScreenCoordinates(float coor[8],Parameters &p) const;
 
     // set Transformation to ReIm coordinates:
   void fitReIm(const Vector<float,2> &screen_pos,
-               const Vector<double,2> &re_im_pos);
-  void fitReIm(const Vector<float,2> &screen_pos,
-               const Vector<double,2> &re_im_pos,
-               double scale);
+               const Complex<double> &re_im_pos);
+  void fitReIm(const Vector<float,2> &screen_pos0,
+               const Vector<float,2> &screen_pos1,
+               const Complex<double> &re_im_pos0,
+               const Complex<double> &re_im_pos1,
+               bool enable_rotation);
+    // returns true if unity_pixel had to be changed
+  bool disableRotation(void);
 
   void startRecalc(void);
-
-  void convertScreenCoordinates(int x,int y,double &re,double &im) const;
-  void gotoScreenCoordinates(int x,int y,double re,double im);
 
   bool step(void);
   float getProgress(void) const;
 private:
+  void fitReImPrivate(const Vector<float,2> &screen_pos,
+                      const Complex<double> &re_im_pos);
+
+//  unsigned int getMaxIter(void) const {return max_iter;}
+  void setMaxIterPrivate(unsigned int n);
+  void getOpenGLScreenCoordinate(int i,int j,float coor[2]) const;
   class ThreadPool *const threads;
   class MandelImage *image;
-  double center_x;
-  double center_y;
-  double size_xy;
-  int width;
-  int height;
-  unsigned int max_iter;
-  bool new_parameters;
-  bool new_max_iter;
-  bool new_size_xy;
+
+    // step(),getOpenGLScreenCoordinates() is called from drawing thread while
+    // fitReIm,etc are called from GUI Java thread
+  mutable Mutex mutex; // for params
+  Parameters params;
+
+    // with/height of the image in pixels
+  int width,height;
+
+  bool parameters_changed;
+  bool max_iter_changed;
+  bool unity_pixel_changed;
   bool was_working_last_time;
 };
 
