@@ -20,9 +20,10 @@
 #ifndef JULIA_AVX_H_
 #define JULIA_AVX_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ //#ifdef __cplusplus
+//extern "C" {
+//#endif
+
 
 #ifdef X86_64
 
@@ -45,14 +46,15 @@ void JuliaAVXfloat8(const float mr[8],const float mi[8],int max_n,
 #define VECTOR_SIZE 1
 #define VECTOR_TYPE double
 #define JULIA_FUNC(mr,mi,max_iter,d) d[0]=JuliaC(mr[0],mi[0],0.0,0.0,max_iter)
-#endif
 
 unsigned int JuliaC(double mr,double mi,
                     double jr,double ji,
                     unsigned int max_n);
 
-#ifdef __cplusplus
-}
 #endif
+
+//#ifdef __cplusplus
+//}
+//#endif
 
 #endif

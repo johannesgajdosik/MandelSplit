@@ -1,21 +1,8 @@
 /*
-    Author and Copyright: Johannes Gajdosik, 2014
-
-    This file is part of MandelSplit.
-
-    MandelSplit is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    MandelSplit is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with MandelSplit.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ * Author and Copyright
+ * Johannes Gajdosik, 2014
+ *
+ */
 
 package gajdosik.johannes.MandelSplit;
 
@@ -93,29 +80,44 @@ public class MyNativeActivity extends NativeActivity {
 //    v.vibrate(40);
 //  }
 
+  private final class ColorPaletteButton extends Button {
+    public ColorPaletteButton(int color_palette_) {
+      super(MyNativeActivity.this);
+      color_palette = color_palette_;
+      setText(color_label[color_palette]);
+      setOnClickListener(
+        new Button.OnClickListener() {
+          @Override public void onClick(View v) {
+            color_palette++;
+            if (color_palette > 5) color_palette = 0;
+            setText(color_label[color_palette]);
+            MyNativeActivity.setColorPalette(color_palette);
+          }
+        });
+    }
+    private int color_palette;
+    private String[] color_label = {
+                       "BGR\n",
+                       "BRG\n",
+                       "RBG\n",
+                       "RGB\n",
+                       "GRB\n",
+                       "GBR\n"
+                     };
+  };
+
   private final class MaxIterDialog extends Dialog {
     public MaxIterDialog(int max_iter,
-                         double center_re,double center_im,
-                         double pixel_size,double pixel_angle,
+                         CharSequence text,
                          boolean info_enabled,
-                         boolean turning_enabled) {
+                         boolean turning_enabled,
+                         int color_palette) {
       super(MyNativeActivity.this);
       final LinearLayout main_layout = new LinearLayout(MyNativeActivity.this);
       main_layout.setOrientation(LinearLayout.VERTICAL);
       text_view = new TextView(MyNativeActivity.this);
       text_part_1 = "max iterations: ";
-      final int prec = -(int)Math.floor(Math.log10(pixel_size));
-      text_part_2 = turning_enabled
-                  ? (new Formatter().format(
-                                       "\npixel: %4.2e; %.1f\u00b0\ncenter: %."+
-                                         prec+"f%+."+prec+"f*i",
-                                       pixel_size,pixel_angle,
-                                       center_re,center_im).toString())
-                  : (new Formatter().format(
-                                       "\npixel: %4.2e\ncenter: %."+
-                                         prec+"f%+."+prec+"f*i",
-                                       pixel_size,
-                                       center_re,center_im).toString());
+      text_part_2 = text;
       text_view.setText(text_part_1+max_iter+text_part_2);
 
       seek_bar = new SeekBar(MyNativeActivity.this);
@@ -154,25 +156,6 @@ public class MyNativeActivity extends NativeActivity {
                                  LinearLayout.LayoutParams.MATCH_PARENT,
                                  LinearLayout.LayoutParams.WRAP_CONTENT));
       line.addView(text_view);
-
-      Button button = new Button(MyNativeActivity.this);
-      line.setLayoutParams(
-              new LinearLayout.LayoutParams(
-                                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                                 LinearLayout.LayoutParams.WRAP_CONTENT));
-      button.setText("minimize\nmax iter");
-      button.setOnClickListener(
-               new Button.OnClickListener() {
-                 @Override
-                 public void onClick(View v) {
-                   int max_iter = MyNativeActivity.minimizeMaxIter();
-                   text_view.setText(text_part_1+
-                                     max_iter+
-                                     text_part_2);
-                   seek_bar.setProgress(Decode(max_iter));
-                 }
-               });
-      line.addView(button);
 
       main_layout.addView(line);
       
@@ -216,8 +199,35 @@ public class MyNativeActivity extends NativeActivity {
                });
       line.addView(toggle);
 
+      Button button = new Button(MyNativeActivity.this);
+      button.setText("minimize\nmax iter");
+      button.setOnClickListener(
+               new Button.OnClickListener() {
+                 @Override
+                 public void onClick(View v) {
+                   int max_iter = MyNativeActivity.minimizeMaxIter();
+                   text_view.setText(text_part_1+
+                                     max_iter+
+                                     text_part_2);
+                   seek_bar.setProgress(Decode(max_iter));
+                 }
+               });
+      line.addView(button);
+
+      button = new ColorPaletteButton(color_palette);
+      line.addView(button);
+
+      LinearLayout spacer = new LinearLayout(MyNativeActivity.this);
+      spacer.setOrientation(LinearLayout.HORIZONTAL);
+      spacer.setLayoutParams(
+               new LinearLayout.LayoutParams(
+                                  LinearLayout.LayoutParams.WRAP_CONTENT,
+                                  LinearLayout.LayoutParams.WRAP_CONTENT,
+                                  1.f));
+      line.addView(spacer);
+
       button = new Button(MyNativeActivity.this);
-      button.setText("Help");
+      button.setText("Help\n");
       button.setOnClickListener(
                new Button.OnClickListener() {
                  @Override
@@ -235,7 +245,7 @@ public class MyNativeActivity extends NativeActivity {
       line.addView(button);
 
       button = new Button(MyNativeActivity.this);
-      button.setText("About");
+      button.setText("About\n");
       button.setOnClickListener(
                new Button.OnClickListener() {
                  @Override
@@ -254,24 +264,8 @@ public class MyNativeActivity extends NativeActivity {
                });
       line.addView(button);
 
-      LinearLayout spacer = new LinearLayout(MyNativeActivity.this);
-      spacer.setOrientation(LinearLayout.HORIZONTAL);
-      spacer.setLayoutParams(
-               new LinearLayout.LayoutParams(
-                                  LinearLayout.LayoutParams.WRAP_CONTENT,
-                                  LinearLayout.LayoutParams.WRAP_CONTENT,
-                                  1.f));
-      line.addView(spacer);
-
-      button = new Button(MyNativeActivity.this);
-      button.setText("Dismiss");
-      button.setOnClickListener(
-               new Button.OnClickListener() {
-                 @Override public void onClick(View v) {dismiss();}
-               });
-      line.addView(button);
-
       main_layout.addView(line);
+
       requestWindowFeature(Window.FEATURE_NO_TITLE);
       setContentView(main_layout);
       final Window window = getWindow();
@@ -289,7 +283,7 @@ public class MyNativeActivity extends NativeActivity {
     private SeekBar seek_bar;
     private TextView text_view;
     private final String text_part_1;
-    private final String text_part_2;
+    private final CharSequence text_part_2;
   };
   
   public int getScreenWidth() {
@@ -307,14 +301,13 @@ public class MyNativeActivity extends NativeActivity {
 //  }
 
   public void showMaxIterDialog(int max_iter,
-                                double center_re,double center_im,
-                                double pixel_size,double pixel_angle,
+                                CharSequence text,
                                 boolean info_enabled,
-                                boolean turning_enabled) {
+                                boolean turning_enabled,
+                                int color_palette) {
     final MaxIterDialog dialog
-      = new MaxIterDialog(max_iter,
-                          center_re,center_im,pixel_size,pixel_angle,
-                          info_enabled,turning_enabled);
+      = new MaxIterDialog(max_iter,text,
+                          info_enabled,turning_enabled,color_palette);
     dialog.show();
       // must come after dialog.show:
     WindowManager.LayoutParams params = dialog.getWindow().getAttributes();
@@ -421,6 +414,7 @@ public class MyNativeActivity extends NativeActivity {
   public static native int minimizeMaxIter();
   public static native void maxIterChanged(int x);
   public static native void maxIterStartStop(int start_stop);
+  public static native void setColorPalette(int color_palette);
   public static native void displayInfo(boolean enable_info);
   public static native void enableTurning(boolean enable_rotation);
   public static native void calledFromJava(int user_data);

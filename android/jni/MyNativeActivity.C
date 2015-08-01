@@ -51,21 +51,22 @@ void MyNativeActivity::setRequestedOrientation(
 }
 
 void MyNativeActivity::showMaxIterDialog(int max_iter,
-                                         const Complex<double> &center,
-                                         const Complex<double> &unity_pixel,
+                                         const char *text,
                                          bool info_enabled,
-                                         bool turning_enabled) const {
+                                         bool turning_enabled,
+                                         int color_palette) const {
   JNIEnv *jni_env = activity->env;
   const jclass cls_NativeActivity = jni_env->GetObjectClass(activity->clazz);
   const jmethodID mid = jni_env->GetMethodID(cls_NativeActivity,
-                                             "showMaxIterDialog","(IDDDDZZ)V");
+                                             "showMaxIterDialog",
+                                             "(ILjava/lang/CharSequence;ZZI)V");
   jni_env->DeleteLocalRef(cls_NativeActivity);
-  double angle = -(180.0/M_PI)*atan2(unity_pixel.im,unity_pixel.re);
-//  if (angle < 0.0) angle += 360.0;
-  jni_env->CallVoidMethod(activity->clazz,mid,max_iter,
-                          center.re,center.im,
-                          sqrt(unity_pixel.length2()),angle,
-                          info_enabled,turning_enabled);
+  if (mid) {
+    jstring j_text = jni_env->NewStringUTF(text);
+    jni_env->CallVoidMethod(activity->clazz,mid,max_iter,j_text,
+                            info_enabled,turning_enabled,color_palette);
+    jni_env->DeleteLocalRef(j_text);
+  }
 }
 
 void MyNativeActivity::performHapticFeedback(void) const {
@@ -300,7 +301,7 @@ static MyNativeActivity *static_my_native_activity = 0;
 MyNativeActivity::MyNativeActivity(ANativeActivity *activity)
   : activity(activity),window(0),input_queue(0),java_cb_map_sequence(0) {
 //setSystemUiVisibility(2+512);
-  cout << pthread_self() << " MyNativeActivity::MyNativeActivity, "
+  cout << "MyNativeActivity::MyNativeActivity, "
           "SDK version: " << activity->sdkVersion << endl;
   {
     JNIEnv *const jni_env = activity->env;
@@ -347,7 +348,7 @@ MyNativeActivity::~MyNativeActivity(void) {
   JNIEnv *const jni_env = activity->env;
   jni_env->DeleteGlobalRef(obj_Display);obj_Display = 0;
   static_my_native_activity = 0;
-  cout << pthread_self() << " MyNativeActivity::~MyNativeActivity" << endl;
+  cout << "MyNativeActivity::~MyNativeActivity" << endl;
 }
 
 void MyNativeActivity::OnDestroy(ANativeActivity *activity) {
@@ -384,7 +385,7 @@ void MyNativeActivity::OnPause(ANativeActivity *activity) {
 
 void MyNativeActivity::OnNativeWindowCreated(ANativeActivity *activity,
                                              ANativeWindow *window) {
-  cout << pthread_self() << " OnNativeWindowCreated" << endl;
+  cout << "OnNativeWindowCreated" << endl;
   ((MyNativeActivity*)(activity->instance))->onNativeWindowCreated(window);
 }
 
@@ -402,13 +403,13 @@ void MyNativeActivity::OnNativeWindowRedrawNeeded(ANativeActivity *activity,
 
 void MyNativeActivity::OnNativeWindowDestroyed(ANativeActivity *activity,
                                                ANativeWindow *window) {
-  cout << pthread_self() << " OnNativeWindowDestroyed" << endl;
+  cout << "OnNativeWindowDestroyed" << endl;
   ((MyNativeActivity*)(activity->instance))->onNativeWindowDestroyed(window);
 }
 
 void MyNativeActivity::OnInputQueueCreated(ANativeActivity *activity,
                                            AInputQueue *queue) {
-  cout << pthread_self() << " OnInputQueueCreated" << endl;
+  cout << "OnInputQueueCreated" << endl;
   ((MyNativeActivity*)(activity->instance))->input_queue = queue;
   AInputQueue_attachLooper(queue,
                            ALooper_forThread(), // use looper of main thread
@@ -441,23 +442,23 @@ int MyNativeActivity::OnProcessInput(int fd,int events,void *data) {
 
 void MyNativeActivity::OnInputQueueDestroyed(ANativeActivity *activity,
                                              AInputQueue *queue) {
-  cout << pthread_self() << " OnInputQueueDestroyed" << endl;
+  cout << "OnInputQueueDestroyed" << endl;
   AInputQueue_detachLooper(queue);
   ((MyNativeActivity*)(activity->instance))->input_queue = 0;
 }
 
 void MyNativeActivity::OnContentRectChanged(ANativeActivity *activity,
                                             const ARect *rect) {
-  cout << pthread_self() << " OnContentRectChanged" << endl;
+  cout << "OnContentRectChanged" << endl;
 }
 
 void MyNativeActivity::OnConfigurationChanged(ANativeActivity *activity) {
-//  cout << pthread_self() << " OnConfigurationChanged" << endl;
+//  cout << "OnConfigurationChanged" << endl;
   ((MyNativeActivity*)(activity->instance))->onConfigurationChanged();
 }
 
 void MyNativeActivity::OnLowMemory(ANativeActivity *activity) {
-  cout << pthread_self() << " OnLowMemory" << endl;
+  cout << "OnLowMemory" << endl;
 }
 
 void *MyNativeActivity::Main(void *context) {
@@ -472,7 +473,7 @@ void MyNativeActivity::onPause(void) {
 }
 
 void MyNativeActivity::onNativeWindowCreated(ANativeWindow *w) {
-  cout << pthread_self() << " MyNativeActivity::onNativeWindowCreated" << endl;
+  cout << "MyNativeActivity::onNativeWindowCreated" << endl;
   window = w;
   continue_looping = true;
   if (0 > pthread_create(&thread,0,MyNativeActivity::Main,this)) {
@@ -482,7 +483,7 @@ void MyNativeActivity::onNativeWindowCreated(ANativeWindow *w) {
 }
 
 void MyNativeActivity::onNativeWindowDestroyed(ANativeWindow *w) {
-  cout << pthread_self() << " MyNativeActivity::onNativeWindowDestroyed" << endl;
+  cout << "MyNativeActivity::onNativeWindowDestroyed" << endl;
   continue_looping = false;
   if (0 > pthread_join(thread,0)) {
     cout << "onNativeWindowDestroyed: pthread_join failed" << endl;
@@ -527,6 +528,13 @@ JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIt
     static_my_native_activity->maxIterStartStop(start_stop);
 //  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged: "
 //       << x << endl;
+}
+
+JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_setColorPalette(
+                         JNIEnv *env,jobject obj,
+                         jint color_palette) {
+  if (static_my_native_activity)
+    static_my_native_activity->setColorPalette(color_palette);
 }
 
 JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_displayInfo(

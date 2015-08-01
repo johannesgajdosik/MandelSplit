@@ -1,5 +1,5 @@
 /*
-    Author and Copyright: Johannes Gajdosik, 2014
+    Author and Copyright: Johannes Gajdosik, 2015
 
     This file is part of MandelSplit.
 
@@ -17,7 +17,7 @@
     along with MandelSplit.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "Julia.h"
+#include "Julia.H"
 
 #ifdef X86_64
 
@@ -27,7 +27,9 @@
 void JuliaAVXdouble4(const double _mr[4],const double _mi[4],int max_n,
                      unsigned int result[4]) {
   __m256d mr = _mm256_loadu_pd(_mr);
+mr = _mm256_add_pd(mr,mr);
   __m256d mi = _mm256_loadu_pd(_mi);
+mi = _mm256_add_pd(mi,mi);
 //  __m256d mi = _mm256_broadcast_sd(&_mi);
   __m256d jr = _mm256_xor_pd(mr,mr);
   __m256d ji = jr;
@@ -55,7 +57,9 @@ void JuliaAVXdouble4(const double _mr[4],const double _mi[4],int max_n,
 void JuliaAVXfloat8(const float _mr[8],const float _mi[8],int max_n,
                     unsigned int result[8]) {
   __m256 mr = _mm256_loadu_ps(_mr);
+mr = _mm256_add_ps(mr,mr);
   __m256 mi = _mm256_loadu_ps(_mi);
+mi = _mm256_add_ps(mi,mi);
   __m256 jr = _mm256_xor_ps(mr,mr);
   __m256 ji = jr;
   __m256 count = jr;
@@ -84,6 +88,10 @@ void JuliaAVXfloat8(const float _mr[8],const float _mi[8],int max_n,
 unsigned int JuliaC(double mr,double mi,
                     double jr,double ji,
                     unsigned int max_n) {
+mr *= 2.0;
+mi *= 2.0;
+jr *= 2.0;
+ji *= 2.0;
   unsigned int n = 0;
   while (n < max_n) {
     double rq = jr*jr;

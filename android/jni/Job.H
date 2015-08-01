@@ -151,8 +151,9 @@ private:
 
 class MainJob : public Job {
 public:
-  MainJob(const MandelImage &image,
-          int size_x,int size_y);
+  static MainJob *create(const MandelImage &image,int size_x,int size_y) {
+    return new MainJob(image,size_x,size_y);
+  }
   void *operator new(size_t size) {
     if (size != sizeof(MainJob)) abort();
     void *const rval = free_list.pop();
@@ -161,6 +162,7 @@ public:
   }
   void operator delete(void *p) {free_list.push(p);}
 private:
+  MainJob(const MandelImage &image,int size_x,int size_y);
   ~MainJob(void);
   void print(std::ostream &o) const {o << "MainJob";}
   bool execute(void);
@@ -172,6 +174,7 @@ private:
   const int size_y;
   static FreeList free_list;
 };
+
 
 
 #endif

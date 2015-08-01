@@ -1,5 +1,5 @@
 /*
-    Author and Copyright: Johannes Gajdosik, 2014
+    Author and Copyright: Johannes Gajdosik, 2015
 
     This file is part of MandelSplit.
 
@@ -21,30 +21,115 @@
 #define MANDEL_IMAGE_H_
 
 
-#include "Julia.h"
-
+#include "MpfClass.H"
 #include "Vector.H"
+#include "GmpFixedPoint.H"
 #include "Logger.H"
+#include "Julia.H"
 
 #include <stdlib.h>
 
+#include <gmpxx.h>
+
+//static inline std::ostream &operator<<(std::ostream &o,const FLOAT_TYPE &x) {
+//  return o << x.get_d();
+//}
+
 class ThreadPool;
+
+static inline
+void PrintMpf(const mpf_t x) {
+  gmp_printf("%Fg, prec=%d, size=%d, exp=%ld, limbs:",
+             x,x[0]._mp_prec,x[0]._mp_size,x[0]._mp_exp);
+  for (int i=0;i<x[0]._mp_size;i++) {
+#ifdef __x86_64__
+    printf(" 0x%016lx",x[0]._mp_d[i]);
+#else
+    printf(" 0x%08lx",x[0]._mp_d[i]);
+#endif
+  }
+  printf("\n");
+}
+
 
 class MandelImage {
 public:
-  mutable volatile _Atomic_word pixel_count;
-  Complex<double> start; // coordinates of first pixel (top_left)
-  Complex<double> d_re_im; // points to the next (right) pixel
-  unsigned int *data;
-  const int screen_width; // line size
-  const int screen_height;
-  mutable unsigned int max_iter;
-    // only compute pixel value if existing value>=recalc_limit
-  unsigned int recalc_limit;
   ThreadPool &thread_pool;
   volatile _Atomic_word &terminate_flag;
   volatile _Atomic_word &nr_of_waiting_threads;
+  mutable volatile _Atomic_word pixel_count;
+private:
+  unsigned int *data;
+  const int screen_width; // line size
+  const int screen_height;
+  unsigned int max_iter;
+  int precision; // -1..float,0..double,>0: gmp-size
+  Complex<double> start; // coordinates of first pixel (top_left)
+  Complex<double> d_re_im; // points to the next (right) pixel
+  GmpFixedPointHeap start_re,start_im; // precision+2
+  GmpFixedPointHeap d_re,d_im; // precision+2
+    // only compute pixel value if existing value>=recalc_limit
+  unsigned int recalc_limit;
 public:
+  unsigned int *getData(void) const {return data;}
+  int getScreenWidth(void) const {return screen_width;}
+  int getScreenHeight(void) const {return screen_height;}
+  const Complex<double> &getStart(void) const {return start;}
+  void setStart(const Complex<FLOAT_TYPE> &s) {
+    start.re = s.re.get_d();
+    start.im = s.im.get_d();
+    if (precision > 0) {
+      start_re.assign2FromMpf(precision,s.re.get_mpf_t());
+      start_im.assign2FromMpf(precision,s.im.get_mpf_t());
+    }
+  }
+  const Complex<double> &getDReIm(void) const {return d_re_im;}
+  void setDReIm(const Complex<FLOAT_TYPE> &d) {
+    d_re_im.re = d.re.get_d();
+    d_re_im.im = d.im.get_d();
+    if (precision > 0) {
+      d_re.assign2FromMpf(precision,d.re.get_mpf_t());
+      d_im.assign2FromMpf(precision,d.im.get_mpf_t());
+      PrintMpf(d.im.get_mpf_t());
+cout << "setDReIm: assign2FromMpf(" << d.im
+     << ") returns " << d_im.convert2ToMpf(precision) << endl;
+    }
+  }
+  const GmpFixedPoint &getStartRe(void) const {return start_re;}
+  const GmpFixedPoint &getStartIm(void) const {return start_im;}
+  const GmpFixedPoint &getDRe(void) const {return d_re;}
+  const GmpFixedPoint &getDIm(void) const {return d_im;}
+  unsigned int getMaxIter(void) const {return max_iter;}
+  void setMaxIter(unsigned int m) {max_iter = m;}
+  unsigned int getRecalcLimit(void) const {return recalc_limit;}
+  void setRecalcLimit(unsigned int l) {recalc_limit = l;}
+  int getVectorSize(void) const {
+#ifdef __arm__
+    return 1;
+#endif
+    return VECTOR_SIZE;
+  }
+    // -1..float,0..double,>=1:nr_of_limbs
+  int getPrecision(void) const {
+    return precision;
+  }
+  void setPrecision(int n) {
+    const int n0 = (2+precision);
+    const int n1 = (2+n);
+    start_re.changePrecision(n0,n1);
+    start_im.changePrecision(n0,n1);
+    d_re.changePrecision(n0,n1);
+    d_im.changePrecision(n0,n1);
+    if (precision <= 0) {
+      start_re.assign2FromDouble(n,start.re);
+      start_im.assign2FromDouble(n,start.im);
+      d_re.assign2FromDouble(n,d_re_im.re);
+      d_im.assign2FromDouble(n,d_re_im.im);
+//cout << "setPrecision(" << n << "): assign2FromDouble(" << d_re_im.im
+//     << ") returns " << d_im.convert2ToMpf(n) << endl;
+    }
+    precision = n;
+  }
   bool needRecalc(unsigned int val) const {
     return (val & 0x80000000) ||
            (val >= recalc_limit && recalc_limit < max_iter);
@@ -53,12 +138,19 @@ public:
               ThreadPool &thread_pool,
               volatile _Atomic_word &terminate_flag,
               volatile _Atomic_word &nr_of_waiting_threads)
-    : data(new unsigned int[screen_width*screen_height]),
-      screen_width(screen_width),screen_height(screen_height),
-      recalc_limit(0),
-      thread_pool(thread_pool),
+    : thread_pool(thread_pool),
       terminate_flag(terminate_flag),
-      nr_of_waiting_threads(nr_of_waiting_threads) {}
+      nr_of_waiting_threads(nr_of_waiting_threads),
+      pixel_count(0),
+      data(new unsigned int[screen_width*screen_height]),
+      screen_width(screen_width),screen_height(screen_height),
+      precision(0),
+      start(0,0),
+      d_re_im(1,0),
+      start_re(precision+2),start_im(precision+2),
+      d_re(precision+2),d_im(precision+2),
+      recalc_limit(0) {
+  }
   ~MandelImage(void) {
     delete[] data;
   }

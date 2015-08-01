@@ -44,6 +44,7 @@ public:
     }
     return false;
   }
+  bool hasJustOneReference(void) const {return (reference_count == 1);}
 private:
   mutable boost::atomic<int> reference_count;
   ReferenceCount(const ReferenceCount&);
@@ -54,6 +55,7 @@ class IntrusivePtrCapable : private ReferenceCount {
 public:
   void retain(void) const {ReferenceCount::retain();}
   void release(void) const {if (ReferenceCount::release()) delete this;}
+  using ReferenceCount::hasJustOneReference;
 protected:
   IntrusivePtrCapable(void) {}
   virtual ~IntrusivePtrCapable(void) {}

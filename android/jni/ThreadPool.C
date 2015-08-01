@@ -68,13 +68,14 @@ void ThreadPool::cancelExecution(void) {
   } else {
 //cout << "ThreadPool::cancelExecution: first time or strange" << endl;
   }
+  while (dequeueDrawJob()) {}
 }
 
 void *ThreadPool::MyThread::threadFunc(void) {
   for (;;) {
 //    cout << "ThreadPool::MyThread::threadFunc: dequeuing" << endl;
 //    Job::Ptr
-     current_job = pool->jobs_not_yet_executed.dequeue();
+    current_job = pool->jobs_not_yet_executed.dequeue();
     if (current_job) {
 //      cout << "ThreadPool::MyThread::threadFunc 100: " << (*current_job) << endl;
       const bool rc = current_job->execute();
@@ -101,14 +102,14 @@ void ThreadPool::mainJobHasTerminated(void) {
 
 void ThreadPool::draw(MandelImage *image) {
   const int nr_of_jobs = nr_of_queued_draw_jobs;
-  if (image->max_iter < 4096 || nr_of_jobs > 300) {
+  if (image->getMaxIter() < 4096 || nr_of_jobs > 300) {
 //cout << "ThreadPool::draw: drawing entire image because too many jobs: "
 //     << nr_of_jobs << endl;
     while (dequeueDrawJob()) {}
     glTexSubImage2D(GL_TEXTURE_2D,0,
-                    0,0,image->screen_width,image->screen_height,
+                    0,0,image->getScreenWidth(),image->getScreenHeight(),
                     GL_RGBA,GL_UNSIGNED_BYTE,
-                    image->data);
+                    image->getData());
   } else {
     Job::Ptr job;
     for (int i=0;i<nr_of_threads;i++) {

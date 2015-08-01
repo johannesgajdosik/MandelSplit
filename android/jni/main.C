@@ -1,5 +1,5 @@
 /*
-    Author and Copyright: Johannes Gajdosik, 2013
+    Author and Copyright: Johannes Gajdosik, 2015
 
     This file is part of MandelSplit.
 
@@ -19,25 +19,34 @@
 
 /*
 
-
-~/android/android-ndk-r9/ndk-build -j8 NDK_DEBUG=1
-ant debug
-adb install -r bin/MandelSplit-debug.apk
+cd jni;\
+if ~/android/android-ndk-r9/ndk-build -j8 NDK_DEBUG=1
+then
+cd ..
+ant debug && adb install -r bin/MandelSplit-debug.apk && \
 adb logcat mandel-split:D *:S DEBUG:I
+else
+cd ..
+fi
 
 ~/android/android-ndk-r9/ndk-build -j8 && ant debug && adb install -r bin/MandelSplit-debug.apk && adb logcat mandel-split:D *:S
 
-Release:
-rm bin/MandelSplit-0.1.1.apk
+meaningful stack trace:
+adb logcat | ~/android/android-ndk-r9/ndk-stack -sym obj/local/armeabi-v7a
 
+Release:
+rm bin/MandelSplit-0.1.2.apk
+
+cd jni && \
 ~/android/android-ndk-r9/ndk-build -j8 && \
+cd .. \
 ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.2.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.2.apk && \
-adb install -r bin/MandelSplit-0.1.2.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.3.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.3.apk && \
+adb install -r bin/MandelSplit-0.1.3.apk
 
 
 */
@@ -312,6 +321,11 @@ private:
   int minimizeMaxIter(void);
   void maxIterChanged(int x);
   void maxIterStartStop(int start_stop);
+  void setPrecision(int nr_of_limbs);
+  void setColorPalette(int c) {
+    color_palette = (c<0)?0:((c>5)?5:c);
+    draw_once = true;
+  }
   void displayInfo(bool enable) {
     if (enable_display_info != enable) {
       enable_display_info = enable;
@@ -334,8 +348,12 @@ private:
   void performMouseDrag(void);
   void longPressFinished(void);
   void printText(float pos_x,float pos_y,const char *text) const;
+  void showMaxIterDialog(void) const;
+  void setGlColors(void) const;
   void main(void);
 private:
+  int width;
+  int height;
     // OpenGl
   EGLDisplay display;
   EGLConfig config;
@@ -347,8 +365,10 @@ private:
 
   int pointer_id[2];
   Vector<float,2> pointer_2d[2];
-  Complex<double> drag_start_pos[2];
+  Complex<FLOAT_TYPE> drag_start_pos[2];
   int max_iter_slider_value;
+  int precision_slider_value;
+  unsigned int color_palette;
   MandelDrawer mandel_drawer;
   GlunaticUI::Font font;
   long long int long_press_start_time;
@@ -358,7 +378,6 @@ private:
   bool enable_turning;
 private:
   struct SavedState {
-    MandelDrawer::Parameters params;
     bool enable_display_info;
     bool enable_turning;
   };
@@ -387,13 +406,16 @@ void MNA::initializeFont(const char *font_file,float font_size) {
 
 MNA::MNA(ANativeActivity *activity,
          void *savedState,size_t savedStateSize)
-    :MyNativeActivity(activity),program(0) {
-  max_iter_slider_value = 0;
+    :MyNativeActivity(activity),program(0),
+     width(getScreenWidth()),
+     height(getScreenHeight()) {
+  precision_slider_value = 0;
+  color_palette = 0;
   long_press_start_time = 0;
   draw_once = false;
   enable_display_info = true;
   enable_turning = false;
-  initializeFont("DejaVuSans.ttf",floorf(sqrtf(getScreenHeight())));
+  initializeFont("DejaVuSans.ttf",floorf(sqrtf(height)));
 
 #define FLAG_KEEP_SCREEN_ON 0x80
   addWindowFlags(FLAG_KEEP_SCREEN_ON);
@@ -401,11 +423,12 @@ MNA::MNA(ANativeActivity *activity,
   pointer_id[0] = -1;
   pointer_id[1] = -1;
 
-  cout << pthread_self() << " MNA::MNA" << endl;
+  cout << "MNA::MNA: "
+       << width << 'x' << height << endl;
 
   display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
   if (display == EGL_NO_DISPLAY) {
-    cout << "eglGetDisplay failed" << endl;
+    cout << "MNA::MNA: eglGetDisplay failed" << endl;
     ABORT();
   }
   EGLint major,minor;
@@ -413,7 +436,7 @@ MNA::MNA(ANativeActivity *activity,
     CheckEglError("eglInitialize");
     ABORT();
   }
-  cout << pthread_self() << " eglInitialize: version "
+  cout << "MNA::MNA: eglInitialize: version "
        << major << '.' << minor << endl;
   
 
@@ -432,7 +455,7 @@ MNA::MNA(ANativeActivity *activity,
     ABORT();
   }
   if (numConfigs <= 0) {
-    cout << "no EGLConfig found" << endl;
+    cout << "MNA::MNA: no EGLConfig found" << endl;
     ABORT();
   }
 
@@ -447,44 +470,81 @@ MNA::MNA(ANativeActivity *activity,
   }
 
   if (savedState) {
-    if (savedStateSize != sizeof(SavedState)) {
-      cout << "bad savedStateSize: " << savedStateSize << endl;
+    if (savedStateSize <= sizeof(SavedState)) {
+      cout << "MNA::MNA: bad savedStateSize: " << savedStateSize << endl;
       ABORT();
     }
-    cout << "resetting from saved instance state" << endl;
+    cout << "MNA::MNA: resetting from saved instance state" << endl;
     enable_display_info = ((SavedState*)savedState)->enable_display_info;
     enable_turning = ((SavedState*)savedState)->enable_turning;
-    mandel_drawer.reset(((SavedState*)savedState)->params);
-
+    const void *p = ((SavedState*)savedState) + 1;
+    mandel_drawer.reset(MandelDrawer::Parameters(p));
   } else {
-    const int width = getScreenWidth();
-    const int height = getScreenHeight();
-    mandel_drawer.reset(MandelDrawer::Parameters(
-                          Complex<double>(-0.75,0.0),
-                          Complex<double>(2.5,0.0)/
-                            ((width<height)?width:height),
-                          512));
+    cout << "MNA::MNA: no saved instance state" << endl;
+    mandel_drawer.reset(
+      MandelDrawer::Parameters(
+//        Complex<FLOAT_TYPE>(-1.0,0.0),
+//        Complex<FLOAT_TYPE>(1e-29,0.0),
+        Complex<FLOAT_TYPE>(-0.375,0.0),
+        Complex<FLOAT_TYPE>(1.25/((width<height)?width:height),0.0),
+        0,
+        512));
   }
 }
 
 void *MNA::onSaveInstanceState(size_t &outSize) {
-  cout << pthread_self() << " MNA::onSaveInstanceState" << endl;
-  outSize = sizeof(SavedState);
-  SavedState *rval = (SavedState*)malloc(sizeof(SavedState));
-  mandel_drawer.getParameters(rval->params);
+  cout << "MNA::onSaveInstanceState" << endl;
+  MandelDrawer::Parameters params;
+  mandel_drawer.getParameters(params);
+  outSize = sizeof(SavedState) + params.getSavedStateSize();
+  SavedState *rval = (SavedState*)malloc(outSize);
   rval->enable_display_info = enable_display_info;
   rval->enable_turning = enable_turning;
+  void *p = rval+1;
+  params.dumpSaveState(p);
   return rval;
 }
 
 MNA::~MNA(void) {
-  cout << pthread_self() << " MNA::~MNA" << endl;
+  cout << "MNA::~MNA" << endl;
   if (!eglTerminate(display)) {
     CheckEglError("eglTerminate w");
   }
   display = EGL_NO_DISPLAY;
   context = EGL_NO_CONTEXT;
 }
+
+
+void MNA::showMaxIterDialog(void) const {
+  MandelDrawer::Parameters p;
+  mandel_drawer.getParameters(p);
+  const double pixel_size = sqrt(p.unity_pixel.length2().get_d());
+  const int prec = -(int)floor(log10(pixel_size));
+  char text[1024];
+  if (enable_turning) {
+    gmp_snprintf(text,sizeof(text),
+                 "\n"
+                 "pixel: %4.2e; %.1f\u00b0\n"
+                 "center: %.*Ff%+.*Ffi",
+                 pixel_size,
+                 -(180.0/M_PI)*atan2(p.unity_pixel.im.get_d(),
+                                     p.unity_pixel.re.get_d()),
+                 prec,p.center.re.get_mpf_t(),prec,p.center.im.get_mpf_t());
+  } else {
+    gmp_snprintf(text,sizeof(text),
+                 "\n"
+                 "pixel: %4.2e\n"
+                 "center: %.*Ff%+.*Ffi",
+                 pixel_size,
+                 prec,p.center.re.get_mpf_t(),prec,p.center.im.get_mpf_t());
+  }
+  MyNativeActivity::showMaxIterDialog(p.max_iter,
+                                      text,
+                                      enable_display_info,
+                                      enable_turning,
+                                      color_palette);
+}
+
 
 int32_t MNA::onInputEvent(AInputEvent *event) {
   switch (AInputEvent_getType(event)) {
@@ -520,13 +580,7 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
                 // do not handle
               break;
             case AKEYCODE_MENU: {
-              MandelDrawer::Parameters p;
-              mandel_drawer.getParameters(p);
-              showMaxIterDialog(p.max_iter,
-                                p.center,
-                                p.unity_pixel,
-                                enable_display_info,
-                                enable_turning);
+              showMaxIterDialog();
 //              cout << "here comes my menu" << endl;
             } return 1;
           }
@@ -587,13 +641,7 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
             if (long_press_start_time != 0 && pointer_id[1] < 0) {
               long_press_start_time = 0;
               draw_once = true;
-              MandelDrawer::Parameters p;
-              mandel_drawer.getParameters(p);
-              showMaxIterDialog(p.max_iter,
-                                p.center,
-                                p.unity_pixel,
-                                enable_display_info,
-                                enable_turning);
+              showMaxIterDialog();
             } else {
               finishMouseDrag();
             }
@@ -635,10 +683,12 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
 
 void MNA::startMouseDrag(void) {
   if (pointer_id[0] >= 0) {
-    drag_start_pos[0] = mandel_drawer.XYToReIm(pointer_2d[0]);
+    mandel_drawer.XYToReIm(pointer_2d[0],
+                           drag_start_pos[0]);
   }
   if (pointer_id[1] >= 0) {
-    drag_start_pos[1] = mandel_drawer.XYToReIm(pointer_2d[1]);
+    mandel_drawer.XYToReIm(pointer_2d[1],
+                           drag_start_pos[1]);
   }
 }
 
@@ -648,6 +698,14 @@ void MNA::finishMouseDrag(void) {
   } else {
     if (long_press_start_time == 0) {
       //performHapticFeedback();
+      MandelDrawer::Parameters p;
+      mandel_drawer.getParameters(p);
+      int bits = 2-(int)floor(0.5*ln2(p.unity_pixel.length2()));
+      int limbs = 0;
+      if (bits > 53) {
+        limbs = ((8*sizeof(mp_limb_t)-1)+bits) / (8*sizeof(mp_limb_t));
+      }
+      setPrecision(limbs);
       mandel_drawer.startRecalc();
     }
   }
@@ -678,13 +736,7 @@ void MNA::longPressFinished(void) {
 //    finishMouseDrag();
     long_press_start_time = 0;
     draw_once = true;
-    MandelDrawer::Parameters p;
-    mandel_drawer.getParameters(p);
-    showMaxIterDialog(p.max_iter,
-                      p.center,
-                      p.unity_pixel,
-                      enable_display_info,
-                      enable_turning);
+    showMaxIterDialog();
   }
 }
 
@@ -695,23 +747,48 @@ int MNA::minimizeMaxIter(void) {
 
 void MNA::maxIterChanged(int x) {
   max_iter_slider_value = x;
+  draw_once = true;
 }
 
 void MNA::maxIterStartStop(int start_stop) {
   if (!start_stop) {
+cout << "MNA::maxIterStartStop: mandel_drawer.setMaxIter("
+     << max_iter_slider_value << ')' << endl;
     mandel_drawer.setMaxIter(max_iter_slider_value);
     //performHapticFeedback();
     mandel_drawer.startRecalc();
   }
 }
 
+void MNA::setPrecision(const int nr_of_limbs) {
+//  cout << "setPrecision(" << nr_of_limbs << ')' << endl;
+  precision_slider_value = nr_of_limbs;
+  const mp_bitcnt_t prec = (((nr_of_limbs <= 0) ? 1 : nr_of_limbs) + 2)
+                         * (8*sizeof(mp_limb_t));
+  drag_start_pos[0].re.set_prec(prec);
+  drag_start_pos[0].im.set_prec(prec);
+  drag_start_pos[1].re.set_prec(prec);
+  drag_start_pos[1].im.set_prec(prec);
+  mpf_set_default_prec(prec);
+  const int old_nr_of_limbs = mandel_drawer.setPrecision(nr_of_limbs);
+  if (nr_of_limbs != old_nr_of_limbs) {
+    std::ostringstream o;
+    o << "Changing precision from "
+      << MandelDrawer::GetPrecisionBits(old_nr_of_limbs) << " to "
+      << MandelDrawer::GetPrecisionBits(nr_of_limbs) << " bits.\n"
+         "This "
+      << ((old_nr_of_limbs < nr_of_limbs) ? "de" : "in")
+      << "creases calculation speed.";
+    showToast(o.str().c_str(),true);
+  }
+}
 
 
 static const char vertex_shader[] =
     "precision highp float;\n"
     "attribute vec4 a_position;\n"
-    "attribute vec2 a_texcoor;\n"
-    "varying vec2 v_texcoor;\n"
+    "attribute vec4 a_texcoor;\n"
+    "varying vec4 v_texcoor;\n"
     "void main() {\n"
     "  gl_Position = a_position;\n"
     "  v_texcoor = a_texcoor;\n"
@@ -731,22 +808,24 @@ static const char fragment_shader1[] =
     "}\n";
 */
 static const char fragment_shader[] =
-    "precision mediump float;\n"
+    "precision highp float;\n"
+//    "precision mediump float;\n"
 //    "precision lowp float;\n"
     "uniform sampler2D contents_texture;\n"
     "uniform vec4 factors;\n"
     "uniform vec4 dimming;\n"
-    "varying vec2 v_texcoor;\n"
+    "varying vec4 v_texcoor;\n"
     "void main() {\n"
+    "  vec4 v = texture2D(contents_texture,v_texcoor.xy);\n"
     "  const vec4 potences = vec4(4.0/256.0,4.0,4.0*256.0,0.0);\n"
-    "  vec4 v = texture2D(contents_texture,v_texcoor);\n"
-    "  float val = dot(potences,v);\n"
-    "  v *= potences;\n"
-    "  gl_FragColor = (val >= factors.a)\n"
-                  " ? vec4(0.0,0.0,0.0,0.0)\n"
-                  " : dimming * fract(fract(v.rrra*factors)"
-                                    "+fract(v.ggga*factors)"
-                                    "+fract(v.bbba*factors));\n"
+    "  if (dot(potences,v) >= factors.a) {\n"
+    "    gl_FragColor = vec4(0.0,0.0,0.0,0.0);\n"
+    "  } else {\n"
+    "    v *= potences;\n"
+    "    gl_FragColor = dimming * fract(fract(v.rrra*factors)"
+                                      "+fract(v.ggga*factors)"
+                                      "+fract(v.bbba*factors));\n"
+    "  }\n"
     "}\n";
 
 
@@ -763,6 +842,38 @@ static const GLfloat texture_coordinates[8] = {
   0.f,1.f,
   1.f,1.f
 };
+
+static const unsigned char color_permutations[3*6] = {
+  0,1,2,
+  0,2,1,
+  2,0,1,
+  2,1,0,
+  1,2,0,
+  1,0,2
+};
+
+void MNA::setGlColors(void) const {
+  const float h = 1.f/cbrtf(max_iter_slider_value);
+  float dim_factor = 1.f;
+  if (long_press_start_time != 0) {
+    // dim
+    dim_factor = 3e-6f*(long_press_start_time+450000LL-GetNow());
+    if (dim_factor > 1.f) dim_factor = 1.f;
+    else if (dim_factor < 0.f) dim_factor = 0.f;
+  }
+  glUniform4f(uniform_loc_dimming,dim_factor,dim_factor,dim_factor,1.f);
+  const GLfloat cf[3] = {
+    64.f*256.f/max_iter_slider_value,
+    64.f*256.f*h*h,
+    64.f*256.f*h,
+  };
+  const unsigned char *const perm(color_permutations+3*color_palette);
+  const GLfloat color_factors[4] = {
+    cf[perm[0]],cf[perm[1]],cf[perm[2]],
+    max_iter_slider_value*(1.f/(64.f*256.f))
+  };
+  glUniform4fv(uniform_loc_factors,1,color_factors);
+}
 
 void MNA::main(void) {
   cout << "MNA::main: begin" << endl;
@@ -788,13 +899,23 @@ void MNA::main(void) {
     CheckEglError("eglMakeCurrent");
     ABORT();
   }
-  EGLint width = 0;
-  if (!eglQuerySurface(display,surface,EGL_WIDTH,&width)) {
+  EGLint egl_width = 0;
+  if (!eglQuerySurface(display,surface,EGL_WIDTH,&egl_width)) {
     CheckEglError("eglQuerySurface EGL_WIDTH");
   }
-  EGLint height = 0;
-  if (!eglQuerySurface(display,surface,EGL_HEIGHT,&height)) {
+  EGLint egl_height = 0;
+  if (!eglQuerySurface(display,surface,EGL_HEIGHT,&egl_height)) {
     CheckEglError("eglQuerySurface EGL_HEIGHT");
+  }
+  cout << "MNA::main: EGL w/h: "
+       << egl_width << 'x' << egl_height
+       << endl;
+
+  if ((height < width && egl_width < egl_height) ||
+      (height >= width && egl_width >= egl_height)) {
+    const EGLint h = egl_height;
+    egl_height = egl_width;
+    egl_width = h;
   }
 
   const GLuint position_location = 0;
@@ -802,14 +923,41 @@ void MNA::main(void) {
   if (program) {
     glUseProgram(program);
     glBindTexture(GL_TEXTURE_2D,contents_texture);
+    cout << "MNA::main: no need to initialize OpenGL resources, "
+         << width << 'x' << height
+         << endl;
+    if (width != egl_width || height != egl_height) {
+      width = egl_width;
+      height = egl_height;
+      mandel_drawer.initialize(width,height,width,height);
+      cout << "MNA::main: size has changed to "
+           << width << 'x' << height
+           << endl;
+      glDeleteTextures(1,&contents_texture);
+      glGenTextures(1,&contents_texture);
+      glBindTexture(GL_TEXTURE_2D,contents_texture);
+      glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+      glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+      glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+      glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,width,height,
+                   0,GL_RGBA,GL_UNSIGNED_BYTE,0);
+      CheckGlError("contents_texture");
+cout << "glTexImage2D ok: " << width << 'x' << height << endl;
+    }
   } else {
-    mandel_drawer.initialize(width,height);
-    cout << "MNA::main: initializing OpenGL resources" << endl;
+    width = egl_width;
+    height = egl_height;
+    mandel_drawer.initialize(width,height,width,height);
+    cout << "MNA::main: initializing OpenGL resources, "
+         << width << 'x' << height
+         << endl;
     IntrusivePtr<GlResourceCache> resource_cache = GlResourceCache::create();
     font.initializeDrawing(*resource_cache);
     PrintGLString("Version", GL_VERSION);
 
 
+/*
     int range[2],precision;
     glGetShaderPrecisionFormat(GL_VERTEX_SHADER,GL_LOW_FLOAT,
                                range,&precision);
@@ -861,7 +1009,7 @@ void MNA::main(void) {
                                range,&precision);
     cout << "FRAGMENT_SHADER,HIGH_INT"
             ": [" << range[0] << ',' << range[1] << "], " << precision << endl;
-
+*/
 /*
 returns the range and precision for different numeric formats supported by the
 shader compiler. shadertype must be VERTEX_SHADER or FRAGMENT_SHADER.
@@ -912,14 +1060,6 @@ turn range[0] = 31, range[1] = 30, and ∗precision = 0.
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,width,height,
                  0,GL_RGBA,GL_UNSIGNED_BYTE,0);
-    {
-      unsigned char *data = new unsigned char[width*height*4];
-      glTexSubImage2D(GL_TEXTURE_2D,0,
-                      0,0,width,height,
-                      GL_RGBA,GL_UNSIGNED_BYTE,
-                      data);
-      delete[] data;
-    }
     CheckGlError("contents_texture");
 cout << "glTexImage2D ok: " << width << 'x' << height << endl;
   }
@@ -936,6 +1076,12 @@ CheckGlError("main 100");
   CheckGlError("glViewport");
   glDisable(GL_CULL_FACE);
 
+  {
+    MandelDrawer::Parameters params;
+    mandel_drawer.getParameters(params);
+    max_iter_slider_value = params.max_iter;
+  }
+  
   cout << "MNA::main: starting loop" << endl;
   bool first_time = true;
   while (continue_looping) {
@@ -959,27 +1105,11 @@ CheckGlError("main 100");
     CheckGlError("glClear");
     glDisable(GL_BLEND);
 
+    setGlColors();
+
     GLfloat entire_screen[8];
     MandelDrawer::Parameters params;
     mandel_drawer.getOpenGLScreenCoordinates(entire_screen,params);
-    {
-      const float h = 1.f/cbrtf(params.max_iter);
-      float dim_factor = 1.f;
-      if (long_press_start_time != 0) {
-        // dim
-        dim_factor = 3e-6f*(long_press_start_time+450000LL-GetNow());
-        if (dim_factor > 1.f) dim_factor = 1.f;
-        else if (dim_factor < 0.f) dim_factor = 0.f;
-      }
-      glUniform4f(uniform_loc_dimming,dim_factor,dim_factor,dim_factor,1.f);
-      const GLfloat color_factors[4] = {
-        64.f*256.f/params.max_iter,
-        64.f*256.f*h*h,
-        64.f*256.f*h,
-        (params.max_iter)*(1.f/(64.f*256.f))
-      };
-      glUniform4fv(uniform_loc_factors,1,color_factors);
-    }
     glEnableVertexAttribArray(position_location);
     glEnableVertexAttribArray(texcoor_location);
     glVertexAttribPointer(position_location,2,GL_FLOAT,GL_FALSE,0,
@@ -1002,10 +1132,10 @@ CheckGlError("main 100");
         snprintf(tmp,sizeof(tmp),"max iter: %d",
                  params.max_iter);
         printText(10,6+2*h,tmp);
-        const double pixel_size = sqrt(params.unity_pixel.length2());
+        const double pixel_size = sqrt((params.unity_pixel.length2()).get_d());
         if (enable_turning) {
-          const double pixel_angle = -(180.0/M_PI)*atan2(params.unity_pixel.im,
-                                                         params.unity_pixel.re);
+          const double pixel_angle = -(180.0/M_PI)*atan2((params.unity_pixel.im).get_d(),
+                                                         (params.unity_pixel.re).get_d());
           snprintf(tmp,sizeof(tmp),"display: %4.2ex%4.2e; %.1f\xb0",
                    width*pixel_size,height*pixel_size,pixel_angle);
         } else {
@@ -1014,11 +1144,11 @@ CheckGlError("main 100");
         }
         printText(10,6+h,tmp);
         const int prec = -(int)floor(log10(pixel_size));
-        snprintf(tmp,sizeof(tmp),"center: %*.*f%+*.*f*i",
+        snprintf(tmp,sizeof(tmp),"center: %*.*f%+*.*fi",
                  prec+2,prec,
-                 params.center.re,
+                 params.center.re.get_d(),
                  prec+2,prec,
-                 params.center.im);
+                 params.center.im.get_d());
         printText(10,6,tmp);
       }
       if (progress < 1.f) {

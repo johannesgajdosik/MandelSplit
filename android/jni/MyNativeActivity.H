@@ -77,10 +77,10 @@ public:
   void callJavaFinish(void);
   void setRequestedOrientation(AndroidScreenOrientation x) const;
   void showMaxIterDialog(int max_iter,
-                         const Complex<double> &center,
-                         const Complex<double> &unity_pixel,
+                         const char *text,
                          bool info_enabled,
-                         bool turning_enabled) const;
+                         bool turning_enabled,
+                         int color_palette) const;
   void performHapticFeedback(void) const;
   void showDialog(int id) const;
   void showToast(const char *text,bool long_duration) const;
@@ -93,6 +93,7 @@ public:
   virtual int minimizeMaxIter(void) {return 8;}
   virtual void maxIterChanged(int x) {}
   virtual void maxIterStartStop(int start_stop) {}
+  virtual void setColorPalette(int color_palette) {}
   virtual void displayInfo(bool enable) {}
   virtual void enableTurning(bool enable) {}
   void callFromJavaThread(const boost::function<void(void)> &f,

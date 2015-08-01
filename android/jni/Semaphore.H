@@ -67,6 +67,15 @@ public:
       }
     }
   }
+  bool trywait(void) {
+    while (0 > sem_trywait(&sem)) {
+      if (errno == EAGAIN) return false;
+      if (errno != EINTR) {
+        abort();
+      }
+    }
+    return true;
+  }
   void multiWait(unsigned int count) {
     while (count > 0) {
       wait();

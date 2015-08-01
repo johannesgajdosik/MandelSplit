@@ -1,5 +1,5 @@
 /*
-    Author and Copyright: Johannes Gajdosik, 2014
+    Author and Copyright: Johannes Gajdosik, 2015
 
     This file is part of MandelSplit.
 
@@ -36,13 +36,18 @@
 
 void CheckGlError(const char *description);
 
-static const Complex<double> default_center(-0.75,0);
-static const Complex<double> default_unity_pixel(1.0/256,0);
+static const Complex<FLOAT_TYPE> default_center(-0.75,0.0);
+static const Complex<FLOAT_TYPE> default_unity_pixel(1.0/256,0.0);
 static const int default_max_iter = 512;
+
+static const FLOAT_TYPE half(0.5);
+static const FLOAT_TYPE zero(0.0);
+
 
 static
 int GetNrOfProcessors(void) {
   {
+//return 1;
     const char *const fname = "/sys/devices/system/cpu/possible";
     std::ifstream i(fname);
     if (i) {
@@ -80,11 +85,66 @@ int GetNrOfProcessors(void) {
 }
 
 
+static inline FLOAT_TYPE InitMpfBin(const void *&p) {
+  __mpf_struct h;
+  memcpy(&h,p,offsetof(__mpf_struct,_mp_d));
+  p = ((char*)p) + offsetof(__mpf_struct,_mp_d);
+  h._mp_d = (mp_limb_t*)p;
+  p = ((char*)p) + sizeof(mp_limb_t)*abs(h._mp_size);
+  return FLOAT_TYPE(&h);
+}
+
+MandelDrawer::Parameters::Parameters(const void *&p) {
+  FLOAT_TYPE c_r(InitMpfBin(p));
+  FLOAT_TYPE c_i(InitMpfBin(p));
+  FLOAT_TYPE u_r(InitMpfBin(p));
+  FLOAT_TYPE u_i(InitMpfBin(p));
+  center.re.set_prec(c_r.get_prec());
+  center.re = c_r;
+  center.im.set_prec(c_i.get_prec());
+  center.im = c_i;
+  unity_pixel.re.set_prec(u_r.get_prec());
+  unity_pixel.re = u_r;
+  unity_pixel.im.set_prec(u_i.get_prec());
+  unity_pixel.im = u_i;
+  memcpy(&precision,p,sizeof(int));p=((char*)p)+sizeof(int);
+  memcpy(&max_iter,p,sizeof(unsigned int));p=((char*)p)+sizeof(unsigned int);
+}
+
+
+static inline size_t GetMpfBinSize(const mpf_t x) {
+  return offsetof(__mpf_struct,_mp_d) + sizeof(mp_limb_t)*abs(x->_mp_size);
+}
+
+static inline void DumpMpfBin(void *&p,const mpf_t x) {
+  memcpy(p,x,offsetof(__mpf_struct,_mp_d));
+  p = ((char*)p) + offsetof(__mpf_struct,_mp_d);
+  const unsigned int s = sizeof(mp_limb_t)*abs(x->_mp_size);
+  memcpy(p,x->_mp_d,s);
+  p = ((char*)p) + s;
+}
+
+size_t MandelDrawer::Parameters::getSavedStateSize(void) {
+  return GetMpfBinSize(center.re.get_mpf_t())
+       + GetMpfBinSize(center.im.get_mpf_t())
+       + GetMpfBinSize(unity_pixel.re.get_mpf_t())
+       + GetMpfBinSize(unity_pixel.im.get_mpf_t())
+       + sizeof(int) + sizeof(unsigned int);
+}
+
+void MandelDrawer::Parameters::dumpSaveState(void *&p) const {
+  DumpMpfBin(p,center.re.get_mpf_t());
+  DumpMpfBin(p,center.im.get_mpf_t());
+  DumpMpfBin(p,unity_pixel.re.get_mpf_t());
+  DumpMpfBin(p,unity_pixel.im.get_mpf_t());
+  memcpy(p,&precision,sizeof(int));p=((char*)p)+sizeof(int);
+  memcpy(p,&max_iter,sizeof(unsigned int));p=((char*)p)+sizeof(unsigned int);
+}
 
 
 MandelDrawer::MandelDrawer(void)
              :threads(new ThreadPool(GetNrOfProcessors())),
-              image(0),
+              image(0),width(0),height(0),
               parameters_changed(true),
               max_iter_changed(true),
               unity_pixel_changed(true),
@@ -103,24 +163,39 @@ void MandelDrawer::reset(const Parameters &p) {
     unity_pixel_changed = true;
   }
   setMaxIterPrivate(p.max_iter);
+  setPrecisionPrivate(p.precision);
 }
 
-void MandelDrawer::initialize(int width,int height) {
-  MandelDrawer::width = width;
-  MandelDrawer::height = height;
-  image = new MandelImage(width,height,
-                          *threads,
-                          threads->terminate_flag,
-                          threads->getNrOfWaitingThreads());
+void MandelDrawer::getParameters(Parameters &p) const {
+  MutexLock lock(mutex);
+  p = params;
+}
+
+void MandelDrawer::initialize(int width,int height,
+                              int screen_width,int screen_height) {
+  if (MandelDrawer::width != width ||
+      MandelDrawer::height != height) {
+    MandelDrawer::width = width;
+    MandelDrawer::height = height;
+    if (image) delete image;
+    image = new MandelImage(screen_width,screen_height,
+                            *threads,
+                            threads->terminate_flag,
+                            threads->getNrOfWaitingThreads());
+    parameters_changed = true;
+    max_iter_changed = true;
+    unity_pixel_changed = true;
+    was_working_last_time = false;
+  }
 }
 
 MandelDrawer::~MandelDrawer(void) {
-  delete image;
   delete threads;
+  delete image;
 }
 
 void *MandelDrawer::getImageData(void) const {
-  return image->data;
+  return image->getData();
 }
 
 //unsigned int MandelDrawer::getMaxIter(void) const {
@@ -134,6 +209,18 @@ void MandelDrawer::sizeChanged(int w,int h) {
     parameters_changed = true;
     unity_pixel_changed = true;
   }
+}
+
+int MandelDrawer::setPrecisionPrivate(int nr_of_limbs) {
+//cout << "MandelDrawer::setPrecisionPrivate(" << nr_of_limbs
+//     << ") old: " << params.precision << endl;
+  const int rval = params.precision;
+  if (rval != nr_of_limbs) {
+    params.setPrecision(nr_of_limbs);
+    parameters_changed = true;
+    unity_pixel_changed = true;
+  }
+  return rval;
 }
 
 void MandelDrawer::setMaxIterPrivate(unsigned int n) {
@@ -151,7 +238,7 @@ void MandelDrawer::setMaxIterPrivate(unsigned int n) {
 int MandelDrawer::minimizeMaxIter(void) {
     // find the greatest value < max_iter
   unsigned int better_max = image->findGreatestValueNotMax(width,height);
-  cout << "MandelDrawer::minimizeMaxIter: findGreatestValueNotMax: " << better_max << endl;
+//  cout << "MandelDrawer::minimizeMaxIter: findGreatestValueNotMax: " << better_max << endl;
   int highest_bit = 0;
   for (int i=better_max+1;i>1;i>>=1) {highest_bit++;}
   if (highest_bit > 9) {
@@ -161,7 +248,7 @@ int MandelDrawer::minimizeMaxIter(void) {
   } else {
     better_max++;
   }
-  cout << "MandelDrawer::minimizeMaxIter: better_max: " << better_max << endl;
+//  cout << "MandelDrawer::minimizeMaxIter: better_max: " << better_max << endl;
   setMaxIter(better_max);
   return better_max;
 }
@@ -171,120 +258,154 @@ void MandelDrawer::startRecalc(void) {
 }
 
 //const Vector<float,2> MandelDrawer::ReImToXY(
-//                        const Complex<double> &re_im_pos) const {
+//                        const Complex<FLOAT_TYPE> &re_im_pos) const {
 //  const Complex<float> tmp((re_im_pos - center)/unity_pixel);
 //  return Vector<float,2>(tmp.re + 0.5f*width,
 //                         0.5f*height - 1.f - tmp.im);
 //}
 
-Complex<double> MandelDrawer::XYToReIm(
-                  const Vector<float,2> &screen_pos) const {
+void MandelDrawer::XYToReIm(const Vector<float,2> &screen_pos,
+                            Complex<FLOAT_TYPE> &re_im_pos) const {
   MutexLock lock(mutex);
-  return params.center
-          + params.unity_pixel
-          * Complex<float>(screen_pos[0] - 0.5f*width,
-                           height-1-screen_pos[1] - 0.5f*height);
+  re_im_pos = params.unity_pixel;
+  re_im_pos *= Complex<FLOAT_TYPE>(screen_pos[0] - 0.5*width,
+                                   0.5*height-1-screen_pos[1]);
+  re_im_pos += params.center;
 }
 
 void MandelDrawer::fitReImPrivate(const Vector<float,2> &screen_pos,
-                                  const Complex<double> &re_im_pos) {
+                                  const Complex<FLOAT_TYPE> &re_im_pos) {
   params.center = re_im_pos
                 - params.unity_pixel
-                * Complex<float>(screen_pos[0] - 0.5f*width,
-                                 height-1-screen_pos[1] - 0.5f*height);
+                * Complex<FLOAT_TYPE>(screen_pos[0] - 0.5*width,
+                                      0.5*height-1-screen_pos[1]);
   {
-    double h = params.center.length2();
-    if (h > 4.0) {
-      h = 2.0/sqrt(h);
-      params.center *= h;
+    FLOAT_TYPE h = params.center.length2();
+    if (h > (unsigned long)1) {
+      params.center *= (((unsigned long)1)/sqrt(h));
     }
   }
+
   params.center /= params.unity_pixel;
-  params.center.re = floor(0.5 + params.center.re);
-  params.center.im = floor(0.5 + params.center.im);
+  params.center.re = floor(half + params.center.re);
+  params.center.im = floor(half + params.center.im);
   params.center *= params.unity_pixel;
-//cout << "fitReIm(" << screen_pos
-//                   << " -> " << re_im_pos
-//                   << "): " << params.center
-//                   << ';' << params.unity_pixel << endl;
+
+//  cout << "fitReIm(" << screen_pos
+//                     << " -> " << re_im_pos
+//                     << "): " << params.center
+//                     << ';' << params.unity_pixel << endl;
 }
 
 void MandelDrawer::fitReIm(const Vector<float,2> &screen_pos,
-                           const Complex<double> &re_im_pos) {
+                           const Complex<FLOAT_TYPE> &re_im_pos) {
   MutexLock lock(mutex);
   fitReImPrivate(screen_pos,re_im_pos);
 }
 
-const double epsilon = 4.44e-16; // 2^-51
-const double epsilon2 = epsilon*epsilon;
+const FLOAT_TYPE epsilon = 4.44e-16; // 2^-51
+const FLOAT_TYPE epsilon2 = epsilon*epsilon;
 
 void MandelDrawer::fitReIm(const Vector<float,2> &screen_pos0,
                            const Vector<float,2> &screen_pos1,
-                           const Complex<double> &re_im_pos0,
-                           const Complex<double> &re_im_pos1,
+                           const Complex<FLOAT_TYPE> &re_im_pos0,
+                           const Complex<FLOAT_TYPE> &re_im_pos1,
                            bool enable_rotation) {
   MutexLock lock(mutex);
-  const Complex<float> screen_diff(screen_pos1[0]-screen_pos0[0],
-                                   screen_pos0[1]-screen_pos1[1]);
-  const Complex<double> re_im_diff(re_im_pos1-re_im_pos0);
-  const double old_length2 = params.unity_pixel.length2();
-  Complex<double> new_unity_pixel;
+//  cout << "fitReIm(" << screen_pos0 << ',' << screen_pos1
+//                     << " -> " << re_im_pos0 << ',' << re_im_pos1
+//                     << "): old: " << params.center
+//                     << ';' << params.unity_pixel;
+  const Complex<FLOAT_TYPE> screen_diff(screen_pos1[0]-screen_pos0[0],
+                                        screen_pos0[1]-screen_pos1[1]);
+  const Complex<FLOAT_TYPE> re_im_diff(re_im_pos1-re_im_pos0);
+  const FLOAT_TYPE old_length2 = params.unity_pixel.length2();
+  Complex<FLOAT_TYPE> new_unity_pixel;
   if (enable_rotation) {
     new_unity_pixel = re_im_diff / screen_diff;
   } else {
-    const double factor = sqrt(re_im_diff.length2()
-                        / (screen_diff.length2()*old_length2));
-    new_unity_pixel = params.unity_pixel * factor;
+    new_unity_pixel = params.unity_pixel
+                    * sqrt(re_im_diff.length2()
+                            / (screen_diff.length2()*old_length2));
   }
-  const double length2 = new_unity_pixel.length2();
-  const double max_length = 4.0/((width<height)?width:height);
-  const double min_length2 = epsilon2;
+
+
+  const FLOAT_TYPE length2(new_unity_pixel.length2());
+  const FLOAT_TYPE max_length(2.0/((width<height)?width:height));
+//  const FLOAT_TYPE min_length2 = epsilon2;
   if (length2 > max_length*max_length) {
     new_unity_pixel *= (max_length/sqrt(length2));
-  } else if (length2 < min_length2) {
-    new_unity_pixel *= sqrt(min_length2/length2);
+//  } else if (length2 < min_length2) {
+//    new_unity_pixel *= sqrt(min_length2/length2);
   }
-  if ( (params.unity_pixel-new_unity_pixel).length2() > epsilon2*length2) {
+
+
+///  if ( (params.unity_pixel-new_unity_pixel).length2() > epsilon2*length2) {
     params.unity_pixel = new_unity_pixel;
-    if (enable_rotation || old_length2 != length2) {
+//    if (enable_rotation || old_length2 != length2) {
       unity_pixel_changed = true;
-    }
-  }
+//    }
+///  }
   const Vector<float,2> screen_pos(0.5f*(screen_pos0+screen_pos1));
-  const Complex<double> re_im_pos(0.5*(re_im_pos0+re_im_pos1));
+  const Complex<FLOAT_TYPE> re_im_pos(mul_2exp(re_im_pos0.re+re_im_pos1.re,-1),
+                                      mul_2exp(re_im_pos0.im+re_im_pos1.im,-1));
   fitReImPrivate(screen_pos,re_im_pos);
-//cout << "fitReIm(" << screen_pos0 << ',' << screen_pos1
-//                   << " -> " << re_im_pos0 << ',' << re_im_pos1
-//                   << "): " << params.center
-//                   << ';' << params.unity_pixel << endl;
+//  cout << " ,new: " << params.center
+//       << ';' << params.unity_pixel << endl;
 }
 
 bool MandelDrawer::disableRotation(void) {
   MutexLock lock(mutex);
-  if (params.unity_pixel.im != 0.0 || params.unity_pixel.re < 0) {
-    params.unity_pixel.re = sqrt(params.unity_pixel.length2());
-    params.unity_pixel.im = 0.0;
-    unity_pixel_changed = true;
-    return true;
+  if (image->getPrecision() <= 0) {
+    if (params.unity_pixel.im != zero ||
+        params.unity_pixel.re < zero) {
+      params.unity_pixel.re = sqrt(params.unity_pixel.length2());
+//      params.unity_pixel.im = zero.copy();
+      params.unity_pixel.im = zero;
+      unity_pixel_changed = true;
+      return true;
+    }
   }
-  return false;
+  return true;
 }
 
-void MandelDrawer::getOpenGLScreenCoordinate(int i,int j,float coor[2]) const {
-  Complex<double> A(i,j);
-  A *= image->d_re_im;
-  A += image->start; // coordinates in Mandelbrot set
+void MandelDrawer::getOpenGLScreenCoordinate(unsigned int i,unsigned int j,
+                                             float coor[2]) const {
+  Complex<FLOAT_TYPE> A;
+  if (image->getPrecision() <= 0) {
+    Complex<double> tmp(i,j);
+    tmp *= image->getDReIm();
+    tmp += image->getStart();
+    A.re = FLOAT_TYPE(tmp.re);
+    A.im = FLOAT_TYPE(tmp.im);
+  } else {
+    mp_limb_t mem_re[image->getPrecision()+2];
+    mp_limb_t mem_im[image->getPrecision()+2];
+    GmpFixedPointExternalMem re(mem_re);
+    GmpFixedPointExternalMem im(mem_im);
+      // one extra limb so that there is no carry/borrow:
+    re.p[image->getPrecision()+1]
+      = re.linCombMinusU1(image->getDRe(),i,image->getDIm(),j);
+    im.p[image->getPrecision()+1]
+      = im.linCombPlusU1(image->getDRe(),j,image->getDIm(),i);
+    re.add2(image->getStartRe());
+    im.add2(image->getStartIm());
+    A.re = FLOAT_TYPE(re.convert2ToMpf(image->getPrecision()));
+    A.im = FLOAT_TYPE(im.convert2ToMpf(image->getPrecision()));
+  }
+   // A has now coordinates in Mandelbrot set
   A -= params.center;
+//cout << "getOpenGLScreenCoordinate: dividing by " << params.unity_pixel << endl;
   A /= params.unity_pixel;
-  coor[0] = (A.re*2.0) / width;
-  coor[1] = (A.im*2.0) / height;
+  coor[0] = (A.re.get_d()*2.0) / width;
+  coor[1] = (A.im.get_d()*2.0) / height;
 }
 
 void MandelDrawer::getOpenGLScreenCoordinates(float coor[8],
                                               Parameters &p) const {
 /* The existing image was computed with
-    image->d_re_im = unity_pixel;
-    image->start = center - 0.5*unity_pixel * (width+sqrt(-1)*height);
+    image->getDReIm() = unity_pixel;
+    image->getStart() = center - 0.5*unity_pixel * (width+sqrt(-1)*height);
   and the texture was mapped to Opengl with
     coor[0] = -1;
     coor[1] = -1;
@@ -299,7 +420,7 @@ void MandelDrawer::getOpenGLScreenCoordinates(float coor[8],
   How shall the existing texture be mapped?
 
   An existing point in the image (i+width*j) has Mandelbrot coordinates
-    A = image->start+(i,j)*image->d_re_im;
+    A = image->getStart()+(i,j)*image->getDReIm();
   This point A shall now be displayed on
     ReImToXY(A)
   So it needs the OpenGl coordinates
@@ -335,28 +456,51 @@ bool MandelDrawer::step(void) {
     threads->cancelExecution();
     image->pixel_count = 0;
 
+    image->setPrecision(params.precision);
+    GmpFixedPointLockfree::changeNrOfLimbs(params.precision);
+
     if (unity_pixel_changed) {
-      image->recalc_limit = 0;
+      image->setRecalcLimit(0);
     } else {
-      image->recalc_limit = image->max_iter;
+      image->setRecalcLimit(image->getMaxIter());
     }
 
-//cout << "step: (re)starting work: unity_pixel_changed:" << unity_pixel_changed
-//     << ", recalc_limit:" << image->recalc_limit
-//     << ", max_iter:" << image->max_iter
-//     << endl;
+cout << "step: (re)starting work: unity_pixel_changed:" << unity_pixel_changed
+     << ", recalc_limit:" << image->getRecalcLimit()
+     << ", max_iter:" << image->getMaxIter()
+     << ", precision:" << params.precision
+     << endl;
 
     { // re-scale MandelImage
-      Complex<double> K = image->d_re_im.inverse();
-      Complex<double> D;
+      Complex<double> K,D;
       {
         MutexLock lock(mutex);
-        image->max_iter = params.max_iter;
-        D = (params.center - image->start) * K;
-        K *= params.unity_pixel;
-        image->d_re_im = params.unity_pixel;
-        image->start = params.center
-                     - 0.5*params.unity_pixel*Complex<double>(width,height);
+        image->setMaxIter(params.max_iter);
+        Complex<FLOAT_TYPE> Kh;
+        Complex<FLOAT_TYPE> Dh(params.center);
+        if (image->getPrecision() <= 0) {
+          Kh.re = FLOAT_TYPE(image->getDReIm().re);
+          Kh.im = FLOAT_TYPE(image->getDReIm().im);
+          Dh.re -= FLOAT_TYPE(image->getStart().re);
+          Dh.im -= FLOAT_TYPE(image->getStart().im);
+        } else {
+          Kh.re = FLOAT_TYPE(image->getDRe().convert2ToMpf(image->getPrecision()));
+          Kh.im = FLOAT_TYPE(image->getDIm().convert2ToMpf(image->getPrecision()));
+          Dh.re -= FLOAT_TYPE(image->getStartRe().convert2ToMpf(image->getPrecision()));
+          Dh.im -= FLOAT_TYPE(image->getStartIm().convert2ToMpf(image->getPrecision()));
+        }
+        const FLOAT_TYPE l2(Kh.length2());
+        Kh.invert();
+        Dh *= Kh;
+        Kh *= params.unity_pixel;
+        K.re = Kh.re.get_d();
+        K.im = Kh.im.get_d();
+        D.re = Dh.re.get_d();
+        D.im = Dh.im.get_d();
+        image->setDReIm(params.unity_pixel);
+        Dh = params.unity_pixel * Complex<FLOAT_TYPE>(-0.5*width,-0.5*height)
+           + params.center;
+        image->setStart(Dh);
       }
 
       unsigned int *const new_data = new unsigned int[width*height];
@@ -371,36 +515,38 @@ bool MandelDrawer::step(void) {
             nd[x] = 0x80000000;
           } else {
             if (unity_pixel_changed) {
-              nd[x] = image->data[yb*(image->screen_width)+xb] | 0x80000000;
+              nd[x] = image->getData()[yb*(image->getScreenWidth())+xb] | 0x80000000;
             } else {
-              nd[x] = image->data[yb*(image->screen_width)+xb];
+              nd[x] = image->getData()[yb*(image->getScreenWidth())+xb];
               if (!image->needRecalc(nd[x])) image->pixel_count++;
             }
           }
         }
       }
       for (int y=0;y<height;y++) {
-        memcpy(image->data + y*(image->screen_width),new_data+y*width,
+        memcpy(image->getData() + y*(image->getScreenWidth()),new_data+y*width,
                sizeof(unsigned int)*width);
       }
       delete[] new_data;
       
       
-//cout << "step: buffer rescaled" << endl;
+cout << "step: buffer rescaled" << endl;
       CheckGlError("before glTexSubImage2D 0");
 #ifndef __ANDROID__
-      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->screen_width);
+      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->getScreenWidth());
 #endif
       glTexSubImage2D(GL_TEXTURE_2D,0,
                       0,0,width,height,
                       GL_RGBA,GL_UNSIGNED_BYTE,
-                      image->data);
+                      image->getData());
       CheckGlError("after glTexSubImage2D 0");
     }
     unity_pixel_changed = false;
 
-    threads->startExecution(new MainJob(*image,width,height));
-//cout << "step: startExecution: new MainJob queued" << endl;
+//cout << "step: startExecution: queueing new MainJob" << endl;
+    threads->startExecution(MainJob::create(*image,width,height));
+//cout << "step: startExecution: new MainJob queued, precision "
+//     << image->getPrecision() << endl;
     was_working_last_time = true;
     parameters_changed = false;
     max_iter_changed = false;
@@ -409,33 +555,33 @@ bool MandelDrawer::step(void) {
       if (threads->workIsFinished()) {
         const float progress = getProgress();
         if (progress != 1.f) {
-          ABORT();
+//          ABORT();
         }
 MutexLock lock(mutex);
-params.max_iter = image->max_iter;
+params.max_iter = image->getMaxIter();
 
 
 
 
 
-        // cout << "step: work finished" << endl;
+        cout << "step: work finished" << endl;
         was_working_last_time = false;
       } else {
-        // cout << "step: still working" << endl;
+//        cout << "step: still working" << endl;
       }
       CheckGlError("before glTexSubImage2D 2");
       
         // TODO: unite jobs and add currently executing jobs
         // GL_EXT_unpack_subimage seems to be not supported
 #ifndef __ANDROID__
-      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->screen_width);
+      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->getScreenWidth());
 #endif
       threads->draw(image);
 
 //      glTexSubImage2D(GL_TEXTURE_2D,0,
 //                      0,0,width,height,
 //                      GL_RGBA,GL_UNSIGNED_BYTE,
-//                      image->data);
+//                      image->getData());
       CheckGlError("after glTexSubImage2D 2");
     } else {
       rval = false;
@@ -444,3 +590,64 @@ params.max_iter = image->max_iter;
 //cout << "step: returns " << rval << endl;
   return rval;
 }
+
+
+std::ostream &operator<<(std::ostream &o,
+                         const MandelDrawer::Parameters &p) {
+  o << '[' << p.precision;
+  const std::streamsize last_prec = o.precision();
+  const std::ios_base::fmtflags last_ff = o.flags();
+  o.flags((last_ff & (~std::ios_base::scientific)) | std::ios_base::fixed);
+  o.precision(p.precision==0 ? 17
+      : (int)floor(p.precision*sizeof(mp_limb_t)*2.42324587393681+1.0) );
+  o << ',' << p.center;
+  o.flags((last_ff & (~std::ios_base::fixed)) | std::ios_base::scientific);
+  o.precision(9);
+  o << ',' << p.unity_pixel;
+  o.flags(last_ff);
+  o.precision(last_prec);
+  o << ',' << p.max_iter << ']';
+  return o;
+}
+
+std::istream &operator>>(std::istream &i,
+                         MandelDrawer::Parameters &p) {
+  char ch;
+  if (!(i >> ch)) return i;
+  if (ch != '[') {
+    i.setstate(std::ios::failbit|std::ios::badbit);
+    return i;
+  }
+  if (!(i >> p.precision)) return i;
+  if (!(i >> ch)) return i;
+  if (ch != ',') {
+    i.setstate(std::ios::failbit|std::ios::badbit);
+    return i;
+  }
+
+  const int prec = (p.precision+2)*sizeof(mp_limb_t)*8;
+  p.center.re.set_prec(prec);
+  p.center.im.set_prec(prec);
+  if (!(i >> p.center)) return i;
+  if (!(i >> ch)) return i;
+  if (ch != ',') {
+    i.setstate(std::ios::failbit|std::ios::badbit);
+    return i;
+  }
+
+  p.unity_pixel.re.set_prec(prec);
+  p.unity_pixel.im.set_prec(prec);
+  if (!(i >> p.unity_pixel)) return i;
+  if (!(i >> ch)) return i;
+  if (ch != ',') {
+    i.setstate(std::ios::failbit|std::ios::badbit);
+    return i;
+  }
+
+  if (!(i >> p.max_iter)) return i;
+  if (!(i >> ch)) return i;
+  if (ch != ']') i.setstate(std::ios::failbit|std::ios::badbit);
+
+  return i;
+}
+

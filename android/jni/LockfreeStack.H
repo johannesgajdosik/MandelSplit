@@ -32,13 +32,14 @@ typedef int SingleInt;
 public:
   LockfreeStack(void) : head_and_counter(0) {}
   ~LockfreeStack(void) {
-    if (GetNode(head_and_counter)) {int *p=0;*p=0;}
-//    for (;;) {
-//      Node *const node = popNonThreadSafe();
-//      if (node == 0) return;
-//      delete node;
-//    }
+//    if (GetNode(head_and_counter)) {int *p=0;*p=0;}
+////    for (;;) {
+////      Node *const node = popNonThreadSafe();
+////      if (node == 0) return;
+////      delete node;
+////    }
   }
+  void clearNonThreadSafe(void) {SetNode(head_and_counter,0);}
   bool empty(void) const {return (GetNode(head_and_counter) == 0);}
   void pushNonThreadSafe(Node *node) {
     node->next = GetNode(head_and_counter);
@@ -48,6 +49,21 @@ public:
     Node *const node = GetNode(head_and_counter);
     if (node) {SetNode(head_and_counter,node->next);}
     return node;
+  }
+  void pushList(Node *list_head,Node *list_tail) {
+    DoubleInt new_head_and_counter;
+    SetNode(new_head_and_counter,list_head);
+    for (;;) {
+      const DoubleInt old_head_and_counter = head_and_counter;
+      list_tail->next = GetNode(old_head_and_counter);
+      SetCounter(new_head_and_counter,GetCounter(old_head_and_counter)+1);
+      if (__sync_bool_compare_and_swap(
+              &head_and_counter,
+              old_head_and_counter,
+              new_head_and_counter)) {
+        return;
+      }
+    }
   }
   void push(Node *node) {
     DoubleInt new_head_and_counter;
