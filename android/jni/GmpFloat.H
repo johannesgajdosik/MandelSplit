@@ -214,6 +214,22 @@ double ln2(const GmpFloat &a) {
 }
 
 static inline
+double atan2(const GmpFloat &y,const GmpFloat &x) {
+  __mpf_struct tmp_x(x);
+  __mpf_struct tmp_y(y);
+  if (tmp_y._mp_size) {
+    tmp_x._mp_exp -= tmp_y._mp_exp;
+    tmp_y._mp_exp = 0;
+  } else {
+      // y == 0
+    tmp_x._mp_exp = 0;
+  }
+  return atan2(mpf_get_d(&tmp_y),mpf_get_d(&tmp_x));
+}
+
+
+
+static inline
 GmpFloat floor(const GmpFloat &a) {
   GmpFloat rval(0,0,a.get_prec());
   mpf_floor(&rval,&a);

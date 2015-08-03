@@ -36,6 +36,7 @@ adb logcat | ~/android/android-ndk-r9/ndk-stack -sym obj/local/armeabi-v7a
 
 Release:
 rm bin/MandelSplit-0.1.2.apk
+rm bin/MandelSplit-0.1.3.apk
 
 cd jni && \
 ~/android/android-ndk-r9/ndk-build -j8 && \
@@ -44,9 +45,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.3.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.3.apk && \
-adb install -r bin/MandelSplit-0.1.3.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.4.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.4.apk && \
+adb install -r bin/MandelSplit-0.1.4.apk
 
 
 */
@@ -321,7 +322,6 @@ private:
   int minimizeMaxIter(void);
   void maxIterChanged(int x);
   void maxIterStartStop(int start_stop);
-  void setPrecision(int nr_of_limbs);
   void setColorPalette(int c) {
     color_palette = (c<0)?0:((c>5)?5:c);
     draw_once = true;
@@ -349,6 +349,7 @@ private:
   void longPressFinished(void);
   void printText(float pos_x,float pos_y,const char *text) const;
   void showMaxIterDialog(void) const;
+  static void ShowPrecisionToast(void *user_data,int old_prec,int new_prec);
   void setGlColors(void) const;
   void main(void);
 private:
@@ -367,7 +368,8 @@ private:
   Vector<float,2> pointer_2d[2];
   Complex<FLOAT_TYPE> drag_start_pos[2];
   int max_iter_slider_value;
-  int precision_slider_value;
+  int precision;
+  int new_precision;
   unsigned int color_palette;
   MandelDrawer mandel_drawer;
   GlunaticUI::Font font;
@@ -409,7 +411,8 @@ MNA::MNA(ANativeActivity *activity,
     :MyNativeActivity(activity),program(0),
      width(getScreenWidth()),
      height(getScreenHeight()) {
-  precision_slider_value = 0;
+  precision = 0;
+  new_precision = 0;
   color_palette = 0;
   long_press_start_time = 0;
   draw_once = false;
@@ -487,7 +490,6 @@ MNA::MNA(ANativeActivity *activity,
 //        Complex<FLOAT_TYPE>(1e-29,0.0),
         Complex<FLOAT_TYPE>(-0.375,0.0),
         Complex<FLOAT_TYPE>(1.25/((width<height)?width:height),0.0),
-        0,
         512));
   }
 }
@@ -518,25 +520,27 @@ MNA::~MNA(void) {
 void MNA::showMaxIterDialog(void) const {
   MandelDrawer::Parameters p;
   mandel_drawer.getParameters(p);
-  const double pixel_size = sqrt(p.unity_pixel.length2().get_d());
-  const int prec = -(int)floor(log10(pixel_size));
+  const FLOAT_TYPE pixel_size = sqrt(p.unity_pixel.length2());
+  const int prec = -(int)floor(0.301029995663981*(1+ln2(pixel_size)));
   char text[1024];
   if (enable_turning) {
     gmp_snprintf(text,sizeof(text),
                  "\n"
-                 "pixel: %4.2e; %.1f\u00b0\n"
+                 "pixel: %4.2Fe; %.1f\u00b0\n"
                  "center: %.*Ff%+.*Ffi",
-                 pixel_size,
-                 -(180.0/M_PI)*atan2(p.unity_pixel.im.get_d(),
-                                     p.unity_pixel.re.get_d()),
-                 prec,p.center.re.get_mpf_t(),prec,p.center.im.get_mpf_t());
+                 mul_2exp(pixel_size,1).get_mpf_t(),
+                 -(180.0/M_PI)*atan2(p.unity_pixel.im,
+                                     p.unity_pixel.re),
+                 prec,mul_2exp(p.center.re,1).get_mpf_t(),
+                 prec,mul_2exp(p.center.im,1).get_mpf_t());
   } else {
     gmp_snprintf(text,sizeof(text),
                  "\n"
-                 "pixel: %4.2e\n"
+                 "pixel: %4.2Fe\n"
                  "center: %.*Ff%+.*Ffi",
-                 pixel_size,
-                 prec,p.center.re.get_mpf_t(),prec,p.center.im.get_mpf_t());
+                 mul_2exp(pixel_size,1).get_mpf_t(),
+                 prec,mul_2exp(p.center.re,1).get_mpf_t(),
+                 prec,mul_2exp(p.center.im,1).get_mpf_t());
   }
   MyNativeActivity::showMaxIterDialog(p.max_iter,
                                       text,
@@ -697,15 +701,17 @@ void MNA::finishMouseDrag(void) {
     startMouseDrag();
   } else {
     if (long_press_start_time == 0) {
-      //performHapticFeedback();
-      MandelDrawer::Parameters p;
-      mandel_drawer.getParameters(p);
-      int bits = 2-(int)floor(0.5*ln2(p.unity_pixel.length2()));
-      int limbs = 0;
-      if (bits > 53) {
-        limbs = ((8*sizeof(mp_limb_t)-1)+bits) / (8*sizeof(mp_limb_t));
+      if (precision != new_precision) {
+        std::ostringstream o;
+        o << "Changing precision from "
+          << MandelDrawer::GetPrecisionBits(precision) << " to "
+          << MandelDrawer::GetPrecisionBits(new_precision) << " bits.\n"
+             "This "
+          << ((precision < new_precision) ? "de" : "in")
+          << "creases calculation speed.";
+        showToast(o.str().c_str(),true);
+        precision = new_precision;
       }
-      setPrecision(limbs);
       mandel_drawer.startRecalc();
     }
   }
@@ -714,9 +720,10 @@ void MNA::finishMouseDrag(void) {
 void MNA::performMouseDrag(void) {
   if (pointer_id[0] >= 0) {
     if (pointer_id[1] >= 0) {
-      mandel_drawer.fitReIm(pointer_2d[0],pointer_2d[1],
-                            drag_start_pos[0],drag_start_pos[1],
-                            enable_turning);
+      new_precision = mandel_drawer.fitReIm(
+                                      pointer_2d[0],pointer_2d[1],
+                                      drag_start_pos[0],drag_start_pos[1],
+                                      enable_turning);
     } else {
       mandel_drawer.fitReIm(pointer_2d[0],drag_start_pos[0]);
     }
@@ -760,28 +767,7 @@ cout << "MNA::maxIterStartStop: mandel_drawer.setMaxIter("
   }
 }
 
-void MNA::setPrecision(const int nr_of_limbs) {
-//  cout << "setPrecision(" << nr_of_limbs << ')' << endl;
-  precision_slider_value = nr_of_limbs;
-  const mp_bitcnt_t prec = (((nr_of_limbs <= 0) ? 1 : nr_of_limbs) + 2)
-                         * (8*sizeof(mp_limb_t));
-  drag_start_pos[0].re.set_prec(prec);
-  drag_start_pos[0].im.set_prec(prec);
-  drag_start_pos[1].re.set_prec(prec);
-  drag_start_pos[1].im.set_prec(prec);
-  mpf_set_default_prec(prec);
-  const int old_nr_of_limbs = mandel_drawer.setPrecision(nr_of_limbs);
-  if (nr_of_limbs != old_nr_of_limbs) {
-    std::ostringstream o;
-    o << "Changing precision from "
-      << MandelDrawer::GetPrecisionBits(old_nr_of_limbs) << " to "
-      << MandelDrawer::GetPrecisionBits(nr_of_limbs) << " bits.\n"
-         "This "
-      << ((old_nr_of_limbs < nr_of_limbs) ? "de" : "in")
-      << "creases calculation speed.";
-    showToast(o.str().c_str(),true);
-  }
-}
+
 
 
 static const char vertex_shader[] =
@@ -1076,17 +1062,15 @@ CheckGlError("main 100");
   CheckGlError("glViewport");
   glDisable(GL_CULL_FACE);
 
-  {
-    MandelDrawer::Parameters params;
-    mandel_drawer.getParameters(params);
-    max_iter_slider_value = params.max_iter;
-  }
+  max_iter_slider_value = mandel_drawer.getMaxIter();
   
   cout << "MNA::main: starting loop" << endl;
   bool first_time = true;
   while (continue_looping) {
     CheckGlError("start_loop");
-    if (!(mandel_drawer.step() || draw_once)) {
+    GLfloat entire_screen[8];
+    MandelDrawer::Parameters params;
+    if (!(mandel_drawer.step(entire_screen,params) || draw_once)) {
       if (pointer_id[0] < 0 && pointer_id[1] < 0) {
         if (!first_time) {
             // busy waiting
@@ -1107,9 +1091,6 @@ CheckGlError("main 100");
 
     setGlColors();
 
-    GLfloat entire_screen[8];
-    MandelDrawer::Parameters params;
-    mandel_drawer.getOpenGLScreenCoordinates(entire_screen,params);
     glEnableVertexAttribArray(position_location);
     glEnableVertexAttribArray(texcoor_location);
     glVertexAttribPointer(position_location,2,GL_FLOAT,GL_FALSE,0,
@@ -1132,23 +1113,26 @@ CheckGlError("main 100");
         snprintf(tmp,sizeof(tmp),"max iter: %d",
                  params.max_iter);
         printText(10,6+2*h,tmp);
-        const double pixel_size = sqrt((params.unity_pixel.length2()).get_d());
+        const FLOAT_TYPE pixel_size = sqrt(params.unity_pixel.length2());
+        FLOAT_TYPE fw = pixel_size*GmpFloat(2*width,pixel_size.get_prec());
+        FLOAT_TYPE fh = pixel_size*GmpFloat(2*height,pixel_size.get_prec());
         if (enable_turning) {
-          const double pixel_angle = -(180.0/M_PI)*atan2((params.unity_pixel.im).get_d(),
-                                                         (params.unity_pixel.re).get_d());
-          snprintf(tmp,sizeof(tmp),"display: %4.2ex%4.2e; %.1f\xb0",
-                   width*pixel_size,height*pixel_size,pixel_angle);
+          const double pixel_angle = -(180.0/M_PI)*atan2(params.unity_pixel.im,
+                                                         params.unity_pixel.re);
+          gmp_snprintf(tmp,sizeof(tmp),"display: %4.2Fex%4.2Fe; %.1f\xb0",
+                       fw.get_mpf_t(),fh.get_mpf_t(),pixel_angle);
         } else {
-          snprintf(tmp,sizeof(tmp),"display: %4.2ex%4.2e",
-                   width*pixel_size,height*pixel_size);
+          gmp_snprintf(tmp,sizeof(tmp),"display: %4.2Fex%4.2Fe",
+                       fw.get_mpf_t(),fh.get_mpf_t());
         }
         printText(10,6+h,tmp);
-        const int prec = -(int)floor(log10(pixel_size));
-        snprintf(tmp,sizeof(tmp),"center: %*.*f%+*.*fi",
-                 prec+2,prec,
-                 params.center.re.get_d(),
-                 prec+2,prec,
-                 params.center.im.get_d());
+
+        const int prec = -(int)floor(0.301029995663981*(1+ln2(pixel_size)));
+        gmp_snprintf(tmp,sizeof(tmp),"center: %*.*Ff%+*.*Ffi",
+                     prec+2,prec,
+                     mul_2exp(params.center.re,1).get_mpf_t(),
+                     prec+2,prec,
+                     mul_2exp(params.center.im,1).get_mpf_t());
         printText(10,6,tmp);
       }
       if (progress < 1.f) {

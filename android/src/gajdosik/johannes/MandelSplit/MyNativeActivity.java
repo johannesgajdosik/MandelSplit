@@ -402,7 +402,7 @@ public class MyNativeActivity extends NativeActivity {
   };
 
   public void callFromJavaThread(int delay_millis,int user_data) {
-//    Log.i("mandel-split","callFromJavaThread:"+delay_millis+","+user_data);
+    Log.i("mandel-split","callFromJavaThread:"+delay_millis+","+user_data);
     if (delay_millis > 0) {
       call_from_java_thread_handler.postDelayed(
         new CallFromJavaThreadRunnable(user_data),

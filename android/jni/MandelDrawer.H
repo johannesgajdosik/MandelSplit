@@ -32,32 +32,9 @@ public:
   MandelDrawer(void);
   ~MandelDrawer(void);
   struct Parameters {
-    Parameters(void) : unity_pixel(0,0) {}
+    Parameters(void) : unity_pixel(0,0),precision(0) {}
     Parameters(const Parameters &p) {assign(p);}
     const Parameters &operator=(const Parameters &p) {assign(p);return *this;}
-    Parameters(const void *&saved_state);
-    size_t getSavedStateSize(void);
-    void dumpSaveState(void *&saved_state) const;
-    Parameters(const Complex<FLOAT_TYPE> &cen,
-               const Complex<FLOAT_TYPE> &uni,
-               int precision,
-               unsigned int max_iter)
-        : precision(precision),max_iter(max_iter) {
-      center.re.set_prec(cen.re.get_prec());
-      center.re = cen.re;
-      center.im.set_prec(cen.im.get_prec());
-      center.im = cen.im;
-      unity_pixel.re.set_prec(uni.re.get_prec());
-      unity_pixel.re = uni.re;
-      unity_pixel.im.set_prec(uni.im.get_prec());
-      unity_pixel.im = uni.im;
-    }
-      // coordinates of image center in the Mandelbrot set:
-    Complex<FLOAT_TYPE> center;
-      // points to one pixel right
-    Complex<FLOAT_TYPE> unity_pixel;
-    int precision;
-    unsigned int max_iter;
     void assign(const Parameters &p) {
       center.re.set_prec(p.center.re.get_prec());
       center.re = p.center.re;
@@ -67,9 +44,32 @@ public:
       unity_pixel.re = p.unity_pixel.re;
       unity_pixel.im.set_prec(p.unity_pixel.im.get_prec());
       unity_pixel.im = p.unity_pixel.im;
-      precision = p.precision;
       max_iter = p.max_iter;
+      precision = p.precision;
     }
+    Parameters(const Complex<FLOAT_TYPE> &cen,
+               const Complex<FLOAT_TYPE> &uni,
+               unsigned int max_iter)
+        : max_iter(max_iter) {
+      center.re.set_prec(cen.re.get_prec());
+      center.re = cen.re;
+      center.im.set_prec(cen.im.get_prec());
+      center.im = cen.im;
+      unity_pixel.re.set_prec(uni.re.get_prec());
+      unity_pixel.re = uni.re;
+      unity_pixel.im.set_prec(uni.im.get_prec());
+      unity_pixel.im = uni.im;
+      updatePrecision();
+    }
+    Parameters(const void *&saved_state);
+    size_t getSavedStateSize(void);
+    void dumpSaveState(void *&saved_state) const;
+      // coordinates of image center in the Mandelbrot set:
+    Complex<FLOAT_TYPE> center;
+      // points to one pixel right
+    Complex<FLOAT_TYPE> unity_pixel;
+    unsigned int max_iter;
+    int precision; // just for conveniance, derived from unity_pixel
     void setPrecision(int p) {
       precision = p;
       const mp_bitcnt_t prec = (((p <= 0) ? 1 : p) + 2) * (8*sizeof(mp_limb_t));
@@ -78,13 +78,27 @@ public:
       unity_pixel.re.set_prec(prec);
       unity_pixel.im.set_prec(prec);
     }
+    void updatePrecision(void);
   };
+    // params describe the position of the _next_ image that will be
+    // calculated after the user has finished dragging.
+    // params are changed by the GUI thread:
+    //   XYToReIm() for initial query / fitReIm() for actual change of params
+    // and are queried by the main (drawing) thread
+    //   getOpenGLScreenCoordinates for getting coordinates of preview
+    // Only when parameters_changed/max_iter_changed/unity_pixel_changed is set,
+    // params will be copied into MandelImage,
+    // and a new image will be calculated
   void reset(const Parameters &p);
   void getParameters(Parameters &p) const;
+
+
+/*
   int setPrecision(int nr_of_limbs) {
     MutexLock lock(mutex);
     return setPrecisionPrivate(nr_of_limbs);
   }
+*/
   static int GetPrecisionBits(int nr_of_limbs) {
     if (nr_of_limbs <= 0) {
       if (nr_of_limbs == 0) return 53;
@@ -97,6 +111,10 @@ public:
     MutexLock lock(mutex);
     setMaxIterPrivate(n);
   }
+  unsigned int getMaxIter(void) const {
+    MutexLock lock(mutex);
+    return params.max_iter;
+  }
   int minimizeMaxIter(void);
   void initialize(int width,int height,int screen_width,int screen_height);
   void sizeChanged(int w,int h);
@@ -105,35 +123,33 @@ public:
   int getWidth(void) const {return width;}
   int getHeight(void) const {return height;}
 
-    // ReIm <-> screen coordinate conversion
-//  const Vector<float,2> ReImToXY(const Complex<FLOAT_TYPE> &re_im_pos) const;
+   // XYToReIm also adjusts the precision of re_im_pos
   void XYToReIm(const Vector<float,2> &screen_pos,
                 Complex<FLOAT_TYPE> &re_im_pos) const;
-
-  void getOpenGLScreenCoordinates(float coor[8],Parameters &p) const;
 
     // set Transformation to ReIm coordinates:
   void fitReIm(const Vector<float,2> &screen_pos,
                const Complex<FLOAT_TYPE> &re_im_pos);
-  void fitReIm(const Vector<float,2> &screen_pos0,
-               const Vector<float,2> &screen_pos1,
-               const Complex<FLOAT_TYPE> &re_im_pos0,
-               const Complex<FLOAT_TYPE> &re_im_pos1,
-               bool enable_rotation);
+    // returns params.precision, which may have changed:
+  int fitReIm(const Vector<float,2> &screen_pos0,
+              const Vector<float,2> &screen_pos1,
+              const Complex<FLOAT_TYPE> &re_im_pos0,
+              const Complex<FLOAT_TYPE> &re_im_pos1,
+              bool enable_rotation);
     // returns true if unity_pixel had to be changed
   bool disableRotation(void);
 
   void startRecalc(void);
 
-  bool step(void);
+
+  bool step(float coor[8],Parameters &p);
   float getProgress(void) const;
 private:
   void fitReImPrivate(const Vector<float,2> &screen_pos,
                       const Complex<FLOAT_TYPE> &re_im_pos);
 
-  int setPrecisionPrivate(int nr_of_limbs);
+//  int setPrecisionPrivate(int nr_of_limbs);
 
-//  unsigned int getMaxIter(void) const {return max_iter;}
   void setMaxIterPrivate(unsigned int n);
   void getOpenGLScreenCoordinate(unsigned int i,unsigned int j,
                                  float coor[2]) const;
@@ -148,9 +164,9 @@ private:
     // with/height of the image in pixels
   int width,height;
 
-  bool parameters_changed;
-  bool max_iter_changed;
-  bool unity_pixel_changed;
+  volatile bool parameters_changed;
+  volatile bool max_iter_changed;
+  volatile bool unity_pixel_changed;
   bool was_working_last_time;
 };
 
