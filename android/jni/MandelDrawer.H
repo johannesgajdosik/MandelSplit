@@ -123,7 +123,6 @@ public:
   int getWidth(void) const {return width;}
   int getHeight(void) const {return height;}
 
-   // XYToReIm also adjusts the precision of re_im_pos
   void XYToReIm(const Vector<float,2> &screen_pos,
                 Complex<FLOAT_TYPE> &re_im_pos) const;
 

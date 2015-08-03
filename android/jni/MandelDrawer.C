@@ -96,9 +96,15 @@ static inline FLOAT_TYPE InitMpfBin(const void *&p) {
 
 void MandelDrawer::Parameters::updatePrecision(void) {
   const int bits = 2-(int)floor(0.5*ln2(unity_pixel.length2()));
-  precision = 0;
-  if (bits > 53) {
-    precision = ((8*sizeof(mp_limb_t)-1)+bits) / (8*sizeof(mp_limb_t));
+  const int new_precision = (bits <= 53)
+                          ? 0
+                          : (((8*sizeof(mp_limb_t)-1)+bits)
+                            / (8*sizeof(mp_limb_t)));
+  if (precision != new_precision) {
+    cout << "MandelDrawer::Parameters::updatePrecision: "
+            "changing precision from "
+         << precision << " to " << new_precision << endl;
+    precision = new_precision;
   }
 }
 
@@ -273,9 +279,6 @@ void MandelDrawer::startRecalc(void) {
 void MandelDrawer::XYToReIm(const Vector<float,2> &screen_pos,
                             Complex<FLOAT_TYPE> &re_im_pos) const {
   MutexLock lock(mutex);
-  const mp_bitcnt_t prec = params.center.re.get_prec();
-  re_im_pos.re.set_prec(prec);
-  re_im_pos.im.set_prec(prec);
   re_im_pos = params.unity_pixel;
   re_im_pos *= Complex<FLOAT_TYPE>(screen_pos[0] - 0.5f*width,
                                    0.5f*height-1.f-screen_pos[1]);
@@ -474,6 +477,9 @@ bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
     mutex.lock();
     params_copy = params;
     if (image->getPrecision() != params.precision) {
+      cout << "MandelDrawer::step: changing image precision from "
+           << image->getPrecision() << " to " << params.precision << endl;
+      params.setPrecision(params.precision);
       image->setPrecision(params.precision);
       GmpFixedPointLockfree::changeNrOfLimbs(params.precision);
     }
@@ -484,11 +490,11 @@ bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
     }
     image->setMaxIter(params.max_iter);
 
-cout << "step: (re)starting work: unity_pixel_changed:" << unity_pixel_changed
-     << ", recalc_limit:" << image->getRecalcLimit()
-     << ", max_iter:" << image->getMaxIter()
-     << ", precision:" << image->getPrecision()
-     << endl;
+//cout << "step: (re)starting work: unity_pixel_changed:" << unity_pixel_changed
+//     << ", recalc_limit:" << image->getRecalcLimit()
+//     << ", max_iter:" << image->getMaxIter()
+//     << ", precision:" << image->getPrecision()
+//     << endl;
 
     { // re-scale MandelImage
       Complex<double> K,D;
@@ -550,7 +556,7 @@ cout << "step: (re)starting work: unity_pixel_changed:" << unity_pixel_changed
       }
       delete[] new_data;
 
-cout << "step: buffer rescaled" << endl;
+//cout << "step: buffer rescaled" << endl;
       CheckGlError("before glTexSubImage2D 0");
 #ifndef __ANDROID__
       glPixelStorei(GL_UNPACK_ROW_LENGTH,image->getScreenWidth());
@@ -592,7 +598,7 @@ cout << "step: buffer rescaled" << endl;
 
 
 
-        cout << "step: work finished" << endl;
+//        cout << "step: work finished" << endl;
         was_working_last_time = false;
       } else {
 //        cout << "step: still working" << endl;

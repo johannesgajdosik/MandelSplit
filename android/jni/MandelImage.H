@@ -91,8 +91,8 @@ public:
       d_re.assign2FromMpf(precision,d.re.get_mpf_t());
       d_im.assign2FromMpf(precision,d.im.get_mpf_t());
       PrintMpf(d.im.get_mpf_t());
-cout << "setDReIm: assign2FromMpf(" << d.im
-     << ") returns " << d_im.convert2ToMpf(precision) << endl;
+//cout << "setDReIm: assign2FromMpf(" << d.im
+//     << ") returns " << d_im.convert2ToMpf(precision) << endl;
     }
   }
   const GmpFixedPoint &getStartRe(void) const {return start_re;}
@@ -128,6 +128,8 @@ cout << "setDReIm: assign2FromMpf(" << d.im
 //cout << "setPrecision(" << n << "): assign2FromDouble(" << d_re_im.im
 //     << ") returns " << d_im.convert2ToMpf(n) << endl;
     }
+
+
     precision = n;
   }
   bool needRecalc(unsigned int val) const {

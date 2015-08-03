@@ -49,6 +49,8 @@ import android.view.Gravity;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.Color;
 import android.content.DialogInterface;
+import android.content.pm.PackageManager;
+import android.content.pm.PackageInfo;
 import android.os.Bundle;
 import android.os.Handler;
 //import android.os.Vibrator;
@@ -272,7 +274,13 @@ public class MyNativeActivity extends NativeActivity {
 //                   v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                    Builder builder = new AlertDialog.Builder(MyNativeActivity.this);
                    builder.setIcon(R.drawable.ic_launcher);
-                   builder.setTitle(R.string.about_dialog_title);
+                   String dialog_title = getResources().getString(R.string.about_dialog_title);
+                   try {
+                     PackageManager manager = getPackageManager();
+                     PackageInfo info = manager.getPackageInfo(getPackageName(),0);
+                     dialog_title += (" version " + info.versionName);
+                   } catch (Exception e) {}
+                   builder.setTitle(dialog_title);
                    builder.setMessage(R.string.about_dialog_msg);
                    AlertDialog dialog = builder.create();
                    dialog.show();
@@ -402,7 +410,7 @@ public class MyNativeActivity extends NativeActivity {
   };
 
   public void callFromJavaThread(int delay_millis,int user_data) {
-    Log.i("mandel-split","callFromJavaThread:"+delay_millis+","+user_data);
+//    Log.i("mandel-split","callFromJavaThread:"+delay_millis+","+user_data);
     if (delay_millis > 0) {
       call_from_java_thread_handler.postDelayed(
         new CallFromJavaThreadRunnable(user_data),

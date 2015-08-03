@@ -37,6 +37,7 @@ adb logcat | ~/android/android-ndk-r9/ndk-stack -sym obj/local/armeabi-v7a
 Release:
 rm bin/MandelSplit-0.1.2.apk
 rm bin/MandelSplit-0.1.3.apk
+rm bin/MandelSplit-0.1.4.apk
 
 cd jni && \
 ~/android/android-ndk-r9/ndk-build -j8 && \
@@ -45,9 +46,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.4.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.4.apk && \
-adb install -r bin/MandelSplit-0.1.4.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.5.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.5.apk && \
+adb install -r bin/MandelSplit-0.1.5.apk
 
 
 */
@@ -709,8 +710,16 @@ void MNA::finishMouseDrag(void) {
              "This "
           << ((precision < new_precision) ? "de" : "in")
           << "creases calculation speed.";
+        cout << o.str() << endl;
         showToast(o.str().c_str(),true);
         precision = new_precision;
+        const mp_bitcnt_t prec = (((precision <= 0) ? 1 : precision) + 2)
+                               * (8*sizeof(mp_limb_t));
+        drag_start_pos[0].re.set_prec(prec);
+        drag_start_pos[0].im.set_prec(prec);
+        drag_start_pos[1].re.set_prec(prec);
+        drag_start_pos[1].im.set_prec(prec);
+        mpf_set_default_prec(prec);
       }
       mandel_drawer.startRecalc();
     }
