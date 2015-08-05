@@ -937,13 +937,22 @@ class FillRectJob : public RectJob {
 public:
   static FillRectJob *create(Job *parent,
                              const MandelImage &image,
-                             int x,int y,int size_x,int size_y) {
-    return new FillRectJob(parent,image,x,y,size_x,size_y);
+                             int x,int y,int size_x,int size_y,
+                             unsigned int value) {
+    return new FillRectJob(parent,image,x,y,size_x,size_y,value);
   }
 private:
   FillRectJob(Job *parent,
-              const MandelImage &image,int x,int y,int size_x,int size_y)
-    : RectJob(parent,image,x,y,size_x,size_y) {}
+              const MandelImage &image,int x,int y,int size_x,int size_y,
+              unsigned int value)
+    : RectJob(parent,image,x,y,size_x,size_y),value(value) {}
+  void *operator new(size_t size) {
+    if (size != sizeof(FillRectJob)) ABORT();
+    void *const rval = free_list.pop();
+    if (rval) return rval;
+    return free_list.malloc(size);
+  }
+  void operator delete(void *p) {free_list.push(p);}
   void print(std::ostream &o) const {
     o << "FillRectJob("
       << x << ',' << y << ',' << size_x << ',' << size_y << ')';
@@ -960,12 +969,7 @@ private:
         }
 #endif
         if (image.needRecalc(d[i])) count++;
-        d[i] =
-#ifdef DEBUG
-                   0xFFFFFFFF;
-#else
-                   image.getMaxIter();
-#endif
+        d[i] = value;
       }
     }
     __atomic_add(&image.pixel_count,count);
@@ -991,7 +995,12 @@ private:
                     GL_RGBA,GL_UNSIGNED_BYTE,d);
 #endif
   }
+private:
+  const unsigned int value;
+  static FreeList free_list;
 };
+
+FreeList FillRectJob::free_list;
 
 
 class FullRectJob : public RectJob {
@@ -1205,33 +1214,61 @@ bool RectContentsJob::execute(void) {
     unsigned int *data = image.getData() + y*image.getScreenWidth() + x;
     const unsigned int *d0 = data;
     const unsigned int *d1 = d0+(size_y-1)*image.getScreenWidth();
-    int count_max = 0;
+    unsigned int check_value = *d0;
     int count_other = 0;
+    int count_max = 0;
 #ifdef DEBUG
     int count_zero = 0;
+    if (*d0 == 0) count_zero++;
+    if (*d1 == 0) count_zero++;
 #endif
-    for (int i=0;i<size_x;i++,d0++,d1++) {
+    d0++;
+    if (check_value < image.getMaxIter()) {
+      if (*d1 != check_value) {count_other++;if (*d1 >= image.getMaxIter()) count_max++;}
+      d1++;
+      for (int i=1;i<size_x;i++,d0++,d1++) {
 #ifdef DEBUG
-      if (*d0 == 0) count_zero++;
-      if (*d1 == 0) count_zero++;
+        if (*d0 == 0) count_zero++;
+        if (*d1 == 0) count_zero++;
 #endif
-      if (*d0 < image.getMaxIter()) count_other++;
-      else count_max++;
-      if (*d1 < image.getMaxIter()) count_other++;
-      else count_max++;
-    }
-    d0 = data + image.getScreenWidth();
-    d1 = d0 + (size_x-1);
-    for (int i=2;i<size_y;
-         i++,d0+=image.getScreenWidth(),d1+=image.getScreenWidth()) {
+        if (*d0 != check_value) {count_other++;if (*d0 >= image.getMaxIter()) count_max++;}
+        if (*d1 != check_value) {count_other++;if (*d1 >= image.getMaxIter()) count_max++;}
+      }
+      d0 = data + image.getScreenWidth();
+      d1 = d0 + (size_x-1);
+      for (int i=2;i<size_y;
+           i++,d0+=image.getScreenWidth(),d1+=image.getScreenWidth()) {
 #ifdef DEBUG
-      if (*d0 == 0) count_zero++;
-      if (*d1 == 0) count_zero++;
+        if (*d0 == 0) count_zero++;
+        if (*d1 == 0) count_zero++;
 #endif
-      if (*d0 < image.getMaxIter()) count_other++;
-      else count_max++;
+        if (*d0 != check_value) {count_other++;if (*d0 >= image.getMaxIter()) count_max++;}
+        if (*d1 != check_value) {count_other++;if (*d1 >= image.getMaxIter()) count_max++;}
+      }
+    } else {
+      check_value = image.getMaxIter();
       if (*d1 < image.getMaxIter()) count_other++;
-      else count_max++;
+      d1++;
+      for (int i=1;i<size_x;i++,d0++,d1++) {
+#ifdef DEBUG
+        if (*d0 == 0) count_zero++;
+        if (*d1 == 0) count_zero++;
+#endif
+        if (*d0 < image.getMaxIter()) count_other++;
+        if (*d1 < image.getMaxIter()) count_other++;
+      }
+      d0 = data + image.getScreenWidth();
+      d1 = d0 + (size_x-1);
+      for (int i=2;i<size_y;
+           i++,d0+=image.getScreenWidth(),d1+=image.getScreenWidth()) {
+#ifdef DEBUG
+        if (*d0 == 0) count_zero++;
+        if (*d1 == 0) count_zero++;
+#endif
+        if (*d0 < image.getMaxIter()) count_other++;
+        if (*d1 < image.getMaxIter()) count_other++;
+      }
+      count_max = 2*(size_x+size_y-2) - count_other;
     }
 #ifdef DEBUG
     if (count_zero) {
@@ -1241,6 +1278,8 @@ bool RectContentsJob::execute(void) {
            << endl;
     }
 #endif
+
+
 //cout << "RectContentsJob::execute 200" << endl;
     if (count_other == 0) {
 //cout << "RectContentsJob::execute 201" << endl;
@@ -1248,8 +1287,10 @@ bool RectContentsJob::execute(void) {
       image.thread_pool.queueJob(
                           FillRectJob::create(
                                          this,image,
-                                         x+1,y+1,size_x-2,size_y-2));
-    } else if (count_max == 0 && size_x < 100 && size_y < 100) {
+                                         x+1,y+1,size_x-2,size_y-2,
+                                         check_value));
+    } else if (count_max == 0 && size_x < 20 && size_y < 20) {
+
 //cout << "RectContentsJob::execute 210" << endl;
         // do not bisect any more
       image.thread_pool.queueJob(
@@ -1264,7 +1305,7 @@ bool RectContentsJob::execute(void) {
       if (size_x > size_y) {
 //cout << "RectContentsJob::execute 310" << endl;
           // split horizontally
-        if (size_x <= 8) {
+        if (size_x <= 5) {
 //cout << "RectContentsJob::execute 311" << endl;
           image.thread_pool.queueJob(
                               FullRectJob::create(
@@ -1286,7 +1327,7 @@ bool RectContentsJob::execute(void) {
       } else {
 //cout << "RectContentsJob::execute 360" << endl;
           // split vertically
-        if (size_y <= 8) {
+        if (size_y <= 5) {
 //cout << "RectContentsJob::execute 361" << endl;
           image.thread_pool.queueJob(
                               FullRectJob::create(

@@ -38,6 +38,7 @@ Release:
 rm bin/MandelSplit-0.1.2.apk
 rm bin/MandelSplit-0.1.3.apk
 rm bin/MandelSplit-0.1.4.apk
+rm bin/MandelSplit-0.1.5.apk
 
 cd jni && \
 ~/android/android-ndk-r9/ndk-build -j8 && \
@@ -46,9 +47,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.5.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.5.apk && \
-adb install -r bin/MandelSplit-0.1.5.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.6.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.6.apk && \
+adb install -r bin/MandelSplit-0.1.6.apk
 
 
 */
@@ -356,6 +357,8 @@ private:
 private:
   int width;
   int height;
+  const float tap_limit;
+  const float long_press_limit;
     // OpenGl
   EGLDisplay display;
   EGLConfig config;
@@ -407,11 +410,15 @@ void MNA::initializeFont(const char *font_file,float font_size) {
   }
 }
 
+static inline float Sqr(float x) {return x*x;}
+
 MNA::MNA(ANativeActivity *activity,
          void *savedState,size_t savedStateSize)
     :MyNativeActivity(activity),program(0),
      width(getScreenWidth()),
-     height(getScreenHeight()) {
+     height(getScreenHeight()),
+     tap_limit((5.f/2.25f)*Sqr(getDisplayDensity())),
+     long_press_limit((13.f/5.f)*tap_limit) {
   precision = 0;
   new_precision = 0;
   color_palette = 0;
@@ -428,7 +435,10 @@ MNA::MNA(ANativeActivity *activity,
   pointer_id[1] = -1;
 
   cout << "MNA::MNA: "
-       << width << 'x' << height << endl;
+       << width << 'x' << height
+       << ", tap_limit: " << tap_limit
+       << ", long_press_limit: " << long_press_limit
+       << endl;
 
   display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
   if (display == EGL_NO_DISPLAY) {
@@ -666,7 +676,7 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
                                              AMotionEvent_getY(event,p_index));
               if (long_press_start_time == 0) {
                 pointer_2d[0] = curr_pos;
-              } else if ((curr_pos-pointer_2d[0]).length2() >= 5.f) {
+              } else if ((curr_pos-pointer_2d[0]).length2() >= tap_limit) {
                 long_press_start_time = 0;
                 draw_once = true;
                 pointer_2d[0] = curr_pos;
@@ -746,7 +756,7 @@ void MNA::performMouseDrag(void) {
 void MNA::longPressFinished(void) {
   if (pointer_id[0] >= 0 && pointer_id[1] < 0 &&
       long_press_start_time != 0 &&
-      (pointer_2d[0]-long_press_start_pos).length2() <= 13.f) {
+      (pointer_2d[0]-long_press_start_pos).length2() <= long_press_limit) {
     performHapticFeedback();
     pointer_id[0] = -1;
 //    finishMouseDrag();

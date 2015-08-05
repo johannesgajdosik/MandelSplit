@@ -108,7 +108,7 @@ void MandelDrawer::Parameters::updatePrecision(void) {
   }
 }
 
-MandelDrawer::Parameters::Parameters(const void *&p) {
+MandelDrawer::Parameters::Parameters(const void *&p) : precision(0) {
   FLOAT_TYPE c_r(InitMpfBin(p));
   FLOAT_TYPE c_i(InitMpfBin(p));
   FLOAT_TYPE u_r(InitMpfBin(p));

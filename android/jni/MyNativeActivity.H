@@ -84,6 +84,7 @@ public:
   void performHapticFeedback(void) const;
   void showDialog(int id) const;
   void showToast(const char *text,bool long_duration) const;
+  float getDisplayDensity(void) const;
   int getFuncResult(const char *func_name) const;
   int getDisplayRotation(void) const;
   int getScreenWidth(void) const;

@@ -50,7 +50,7 @@ public:
     Parameters(const Complex<FLOAT_TYPE> &cen,
                const Complex<FLOAT_TYPE> &uni,
                unsigned int max_iter)
-        : max_iter(max_iter) {
+        : max_iter(max_iter),precision(0) {
       center.re.set_prec(cen.re.get_prec());
       center.re = cen.re;
       center.im.set_prec(cen.im.get_prec());

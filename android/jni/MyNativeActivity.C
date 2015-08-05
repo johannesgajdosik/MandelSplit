@@ -40,6 +40,15 @@ AAssetManager *MyNativeActivity::getAssetManager(void) const {
   return activity->assetManager;
 }
 
+float  MyNativeActivity::getDisplayDensity(void) const {
+  JNIEnv *jni_env = activity->env;
+  const jclass cls_NativeActivity = jni_env->GetObjectClass(activity->clazz);
+  const jmethodID mid = jni_env->GetMethodID(cls_NativeActivity,
+                                             "getDisplayDensity","()F");
+  jni_env->DeleteLocalRef(cls_NativeActivity);
+  return jni_env->CallFloatMethod(activity->clazz,mid);
+}
+
 void MyNativeActivity::setRequestedOrientation(
                          AndroidScreenOrientation x) const {
   JNIEnv *jni_env = activity->env;

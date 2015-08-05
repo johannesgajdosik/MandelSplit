@@ -36,6 +36,7 @@ import android.widget.Button;
 import android.widget.ToggleButton;
 import android.widget.CompoundButton;
 import android.widget.Toast;
+import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.Window;
@@ -313,6 +314,14 @@ public class MyNativeActivity extends NativeActivity {
     private final CharSequence text_part_2;
   };
   
+  public float getDisplayDensity() {
+    DisplayMetrics metrics = new DisplayMetrics();
+    ((WindowManager)getApplicationContext()
+      .getSystemService(Context.WINDOW_SERVICE))
+      .getDefaultDisplay().getMetrics(metrics);
+    return metrics.density;
+  }
+
   public int getScreenWidth() {
     return ((WindowManager)getApplicationContext()
               .getSystemService(Context.WINDOW_SERVICE))
