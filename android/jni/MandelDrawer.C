@@ -458,7 +458,16 @@ void MandelDrawer::getOpenGLScreenCoordinate(unsigned int i,unsigned int j,
 
 
 
-
+void MandelDrawer::setPriorityPoint(const Vector<float,2> screen_pos) {
+  const int xy[2] = {
+    (int)floorf(0.5f+screen_pos[0]),
+    height-1-(int)floorf(0.5f+screen_pos[1])
+  };
+  threads->startPause();
+  threads->sortJobqueue(xy);
+  image->setPriorityPoint(xy[0],xy[1]);
+  threads->finishPause();
+}
 
 
 float MandelDrawer::getProgress(void) const {
@@ -485,6 +494,7 @@ bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
     }
     if (unity_pixel_changed) {
       image->setRecalcLimit(0);
+      image->setPriorityPoint(-1,-1);
     } else {
       image->setRecalcLimit(image->getMaxIter());
     }

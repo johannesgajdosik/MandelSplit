@@ -91,14 +91,6 @@ public:
     // and a new image will be calculated
   void reset(const Parameters &p);
   void getParameters(Parameters &p) const;
-
-
-/*
-  int setPrecision(int nr_of_limbs) {
-    MutexLock lock(mutex);
-    return setPrecisionPrivate(nr_of_limbs);
-  }
-*/
   static int GetPrecisionBits(int nr_of_limbs) {
     if (nr_of_limbs <= 0) {
       if (nr_of_limbs == 0) return 53;
@@ -143,6 +135,7 @@ public:
 
   bool step(float coor[8],Parameters &p);
   float getProgress(void) const;
+  void setPriorityPoint(const Vector<float,2> screen_pos);
 private:
   void fitReImPrivate(const Vector<float,2> &screen_pos,
                       const Complex<FLOAT_TYPE> &re_im_pos);

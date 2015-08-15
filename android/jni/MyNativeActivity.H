@@ -21,7 +21,7 @@
 #ifndef MY_NATIVE_ACTIVITY_H_
 #define MY_NATIVE_ACTIVITY_H_
 
-#include "Mutex.H"
+#include "Semaphore.H"
 #include "Vector.H"
 #include <pthread.h>
 
@@ -155,9 +155,12 @@ private:
   int java_cb_map_sequence;
   typedef std::map<int,boost::function<void(void)> > JavaCbMap;
   JavaCbMap java_cb_map;
-  Mutex java_cb_map_mutex;
+//  Mutex java_cb_map_mutex;
 protected:
-  bool continue_looping;
+  volatile bool continue_looping;
+  volatile bool loop_sem_waiting;
+  Semaphore loop_sem;
+  void postLoopSem(void) {if (loop_sem_waiting) loop_sem.post();}
 };
 
 #endif

@@ -55,13 +55,17 @@ public:
 
 class Job : public IntrusivePtrCapable {
 protected:
-  Job(volatile _Atomic_word &terminate_flag) : terminate_flag(terminate_flag) {}
+  Job(volatile _Atomic_word &terminate_flag)
+    : terminate_flag(terminate_flag) {}
 public:
   typedef IntrusivePtr<Job> Ptr;
   virtual ~Job(void) {}
+  virtual bool isFirstStageJob(void) const {return false;}
+  virtual int getDistance(const int xy[2]) const = 0;
   virtual void print(std::ostream &o) const = 0;
   virtual bool execute(void) = 0;
   virtual void drawToTexture(void) const {}
+public:
   volatile _Atomic_word &terminate_flag;
 };
 
@@ -71,79 +75,12 @@ std::ostream &operator<<(std::ostream &o,const Job &j) {
   return o;
 }
 
-class JobQueueBase {
-protected:
-  static FreeList free_list;
-};
-
-class JobQueue : public JobQueueBase {
-public:
-  JobQueue(void) : nr_of_waiting_threads(0) {}
-  void queue(const Job::Ptr &j) {
-    Node *n = new Node(j);
-    stack.push(n);
-    if (nr_of_waiting_threads) {
-      semaphore.post();
-    }
-  }
-  void clear(void) {
-    Node *node;
-    while ((node = stack.pop())) {
-      delete node;
-    }
-  }
-  Job::Ptr dequeueWithoutWaiting(void) {
-    for (;;) {
-      Node *node = stack.pop();
-      if (node) {
-        Job::Ptr rval(node->job);
-        delete node;
-        return rval;
-      }
-      if (stack.empty()) {
-        return Job::Ptr();
-      }
-    }
-  }
-  Job::Ptr dequeue(void) {
-    for (;;) {
-      Node *node = stack.pop();
-      if (node) {
-        Job::Ptr rval(node->job);
-        delete node;
-        return rval;
-      }
-      __atomic_add(&nr_of_waiting_threads,1);
-      semaphore.wait();
-      __atomic_add(&nr_of_waiting_threads,-1);
-    }
-  }
-private:
-  struct Node {
-    void *operator new(size_t size) {
-      if (size != sizeof(Node)) abort();
-      void *const rval = free_list.pop();
-      if (rval) return rval;
-      return free_list.malloc(size);
-    }
-    void operator delete(void *p) {free_list.push(p);}
-    Node(const Job::Ptr &job) : job(job) {}
-    Node *next;
-    Job::Ptr job;
-  };
-  LockfreeStack<Node> stack;
-public:
-  volatile _Atomic_word nr_of_waiting_threads;
-private:
-  Semaphore semaphore;
-};
-
-
 class ChildJob : public Job {
+public:
+  Job *getParent(void) const {return parent.get();}
 protected:
   ChildJob(Job *parent)
     : Job(parent->terminate_flag),parent(parent) {}
-  Job *getParent(void) const {return parent.get();}
   void resetParent(void) {parent.reset();}
 private:
   Job::Ptr parent; // keep parent alive
@@ -164,6 +101,7 @@ public:
 private:
   MainJob(const MandelImage &image,int size_x,int size_y);
   ~MainJob(void);
+  int getDistance(const int xy[2]) const {return 0;}
   void print(std::ostream &o) const {o << "MainJob";}
   bool execute(void);
   friend class MainFirstStageJob;

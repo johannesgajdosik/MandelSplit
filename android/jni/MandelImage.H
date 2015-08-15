@@ -62,6 +62,8 @@ private:
   unsigned int *data;
   const int screen_width; // line size
   const int screen_height;
+  int priority_x;
+  int priority_y;
   unsigned int max_iter;
   int precision; // -1..float,0..double,>0: gmp-size
   Complex<double> start; // coordinates of first pixel (top_left)
@@ -74,6 +76,8 @@ public:
   unsigned int *getData(void) const {return data;}
   int getScreenWidth(void) const {return screen_width;}
   int getScreenHeight(void) const {return screen_height;}
+  int getPriorityX(void) const {return priority_x;}
+  int getPriorityY(void) const {return priority_y;}
   const Complex<double> &getStart(void) const {return start;}
   void setStart(const Complex<FLOAT_TYPE> &s) {
     start.re = s.re.get_d();
@@ -103,6 +107,7 @@ public:
   void setMaxIter(unsigned int m) {max_iter = m;}
   unsigned int getRecalcLimit(void) const {return recalc_limit;}
   void setRecalcLimit(unsigned int l) {recalc_limit = l;}
+  void setPriorityPoint(int x,int y) {priority_x = x;priority_y = y;}
   int getVectorSize(void) const {
 #ifdef __arm__
     return 1;
@@ -146,6 +151,7 @@ public:
       pixel_count(0),
       data(new unsigned int[screen_width*screen_height]),
       screen_width(screen_width),screen_height(screen_height),
+      priority_x(-1),priority_y(-1),
       precision(0),
       start(0,0),
       d_re_im(1,0),

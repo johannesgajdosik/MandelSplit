@@ -39,23 +39,25 @@ rm bin/MandelSplit-0.1.2.apk
 rm bin/MandelSplit-0.1.3.apk
 rm bin/MandelSplit-0.1.4.apk
 rm bin/MandelSplit-0.1.5.apk
+rm bin/MandelSplit-0.1.6.apk
 
 cd jni && \
 ~/android/android-ndk-r9/ndk-build -j8 && \
-cd .. \
+cd .. && \
 ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.6.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.6.apk && \
-adb install -r bin/MandelSplit-0.1.6.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.7.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.7.apk && \
+adb install -r bin/MandelSplit-0.1.7.apk
 
 
 */
 
 #include "MyNativeActivity.H"
 #include "MandelDrawer.H"
+#include "Semaphore.H"
 #include "Vector.H"
 #include "Logger.H"
 
@@ -327,11 +329,13 @@ private:
   void setColorPalette(int c) {
     color_palette = (c<0)?0:((c>5)?5:c);
     draw_once = true;
+    postLoopSem();
   }
   void displayInfo(bool enable) {
     if (enable_display_info != enable) {
       enable_display_info = enable;
       draw_once = true;
+      postLoopSem();
     }
   }
   void enableTurning(bool enable) {
@@ -379,7 +383,7 @@ private:
   GlunaticUI::Font font;
   long long int long_press_start_time;
   Vector<float,2> long_press_start_pos;
-  bool draw_once;
+  volatile bool draw_once;
   bool enable_display_info;
   bool enable_turning;
 private:
@@ -418,7 +422,7 @@ MNA::MNA(ANativeActivity *activity,
      width(getScreenWidth()),
      height(getScreenHeight()),
      tap_limit((5.f/2.25f)*Sqr(getDisplayDensity())),
-     long_press_limit((13.f/5.f)*tap_limit) {
+     long_press_limit((2.f*13.f/5.f)*tap_limit) {
   precision = 0;
   new_precision = 0;
   color_palette = 0;
@@ -636,6 +640,7 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
             pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
             startMouseDrag();
             long_press_start_time = GetNow();
+            draw_once = false;
             callFromJavaThread(boost::bind(&MNA::longPressFinished,this),
                                300);
             long_press_start_pos = pointer_2d[0];
@@ -654,9 +659,12 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
             pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
             pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
             if (long_press_start_time != 0 && pointer_id[1] < 0) {
+                // this is a tap
+              cout << "tap at " << pointer_2d[0] << endl;
               long_press_start_time = 0;
-              draw_once = true;
-              showMaxIterDialog();
+//              draw_once = true;
+//              showMaxIterDialog();
+              mandel_drawer.setPriorityPoint(pointer_2d[0]);
             } else {
               finishMouseDrag();
             }
@@ -732,6 +740,7 @@ void MNA::finishMouseDrag(void) {
         mpf_set_default_prec(prec);
       }
       mandel_drawer.startRecalc();
+      postLoopSem();
     }
   }
 }
@@ -746,9 +755,11 @@ void MNA::performMouseDrag(void) {
     } else {
       mandel_drawer.fitReIm(pointer_2d[0],drag_start_pos[0]);
     }
+    postLoopSem();
   } else {
     if (pointer_id[1] >= 0) {
       mandel_drawer.fitReIm(pointer_2d[1],drag_start_pos[1]);
+      postLoopSem();
     }
   }
 }
@@ -768,12 +779,15 @@ void MNA::longPressFinished(void) {
 
 
 int MNA::minimizeMaxIter(void) {
-  return mandel_drawer.minimizeMaxIter();
+  const int rval = mandel_drawer.minimizeMaxIter();
+  postLoopSem();
+  return rval;
 }
 
 void MNA::maxIterChanged(int x) {
   max_iter_slider_value = x;
   draw_once = true;
+  postLoopSem();
 }
 
 void MNA::maxIterStartStop(int start_stop) {
@@ -783,6 +797,7 @@ cout << "MNA::maxIterStartStop: mandel_drawer.setMaxIter("
     mandel_drawer.setMaxIter(max_iter_slider_value);
     //performHapticFeedback();
     mandel_drawer.startRecalc();
+    postLoopSem();
   }
 }
 
@@ -1089,11 +1104,16 @@ CheckGlError("main 100");
     CheckGlError("start_loop");
     GLfloat entire_screen[8];
     MandelDrawer::Parameters params;
-    if (!(mandel_drawer.step(entire_screen,params) || draw_once)) {
+    if (!(mandel_drawer.step(entire_screen,params) || draw_once ||
+          long_press_start_time == 0)) {
       if (pointer_id[0] < 0 && pointer_id[1] < 0) {
         if (!first_time) {
-            // busy waiting
-          usleep(30000);
+          while (loop_sem.trywait()) {
+            if (!continue_looping) goto exit_loop;
+          }
+          loop_sem_waiting = true;
+          loop_sem.wait();
+          loop_sem_waiting = false;
           continue;
         }
       }
@@ -1168,7 +1188,7 @@ CheckGlError("main 100");
     }
 
   }
-
+  exit_loop:
   eglMakeCurrent(display,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);
   surface = EGL_NO_SURFACE;
   cout << "MNA::main: end" << endl;

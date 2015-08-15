@@ -47,59 +47,92 @@ public:
   }
   void operator delete(void *p) {free_list.push(p);}
 private:
+  int getDistance(const int xy[2]) const {
+    ABORT();
+    return 0;
+  }
+  bool isFirstStageJob(void) const {return true;}
   bool execute(void) {return false;}
   static FreeList free_list;
 };
 
 FreeList FirstStageJob::free_list;
 
-
 class LineJob : public ChildJob {
 protected:
   LineJob(Job *parent,
+          const MandelImage &image,int x,int y,unsigned int *d,int size)
+    : ChildJob(parent),image(image),x(x),y(y),d(d),size(size) {}
+protected:
+  int getDistanceHorz(const int xy[2]) const {
+    if (getParent()->isFirstStageJob()) {
+      return static_cast<FirstStageJob*>(getParent())
+               ->getParent()->getDistance(xy);
+    }
+    const int dist_x = (xy[0]<x) ? (x-xy[0]) :
+                       (x+size<=xy[0]) ? (xy[0]-x-size+1) : 0;
+    const int dist_y = (xy[1]<y) ? (y-xy[1]) : (xy[1]-y);
+    return dist_x + dist_y;
+  }
+  int getDistanceVert(const int xy[2]) const {
+    if (getParent()->isFirstStageJob()) {
+      return static_cast<FirstStageJob*>(getParent())
+               ->getParent()->getDistance(xy);
+    }
+    const int dist_x = (xy[0]<x) ? (x-xy[0]) : (xy[0]-x);
+    const int dist_y = (xy[1]<y) ? (y-xy[1]) :
+                       (y+size<=xy[1]) ? (xy[1]-y-size+1) : 0;
+    return dist_x + dist_y;
+  }
+protected:
+  const MandelImage &image;
+  const int x;
+  const int y;
+  unsigned int *const d;
+  int size;
+};
+
+class LineJobDouble : public LineJob {
+protected:
+  LineJobDouble(Job *parent,
           const MandelImage &image,int x,int y,unsigned int *d,
           const Complex<double> &re_im,int size)
-    : ChildJob(parent),image(image),x(x),y(y),
-      d(d),re_im(re_im),size(size) {}
+    : LineJob(parent,image,x,y,d,size),re_im(re_im) {}
 public:
   void *operator new(size_t size) {
-    if (size != sizeof(LineJob)) ABORT();
+    if (size != sizeof(LineJobDouble)) ABORT();
     void *const rval = free_list.pop();
     if (rval) return rval;
     return free_list.malloc(size);
   }
   void operator delete(void *p) {free_list.push(p);}
 protected:
-  const MandelImage &image;
-  const int x;
-  const int y;
-  unsigned int *const d;
   Complex<double> re_im;
-  int size;
   static FreeList free_list;
 };
 
-FreeList LineJob::free_list;
+FreeList LineJobDouble::free_list;
 
 
-class HorzLineJob : public LineJob {
+class HorzLineJobDouble : public LineJobDouble {
 public:
   static inline ChildJob *create(Job *parent,
                                  const MandelImage &image,int x,int y,
                                  int size_x);
-  static inline HorzLineJob *create(Job *parent,
+  static inline HorzLineJobDouble *create(Job *parent,
                                     const MandelImage &image,int x,int y,
                                     unsigned int *d,
                                     const Complex<double> &re_im,
                                     int size_x);
 protected:
-  HorzLineJob(Job *parent,
+  HorzLineJobDouble(Job *parent,
               const MandelImage &image,int x,int y,unsigned int *d,
               const Complex<double> &re_im,int size_x)
-    : LineJob(parent,image,x,y,d,re_im,size_x) {}
+    : LineJobDouble(parent,image,x,y,d,re_im,size_x) {}
 private:
+  int getDistance(const int xy[2]) const {return getDistanceHorz(xy);}
   void print(std::ostream &o) const {
-    o << "HorzLineJob(" << x << ',' << y << ',' << size << ')';
+    o << "HorzLineJobDouble(" << x << ',' << y << ',' << size << ')';
   }
   bool execute(void);
   void drawToTexture(void) const {
@@ -109,38 +142,38 @@ private:
   }
 };
 
-class RecalcLimitHorzLineJob : public HorzLineJob {
+class RecalcLimitHorzLineJobDouble : public HorzLineJobDouble {
 public:
-  RecalcLimitHorzLineJob(Job *parent,
+  RecalcLimitHorzLineJobDouble(Job *parent,
                          const MandelImage &image,int x,int y,unsigned int *d,
                          const Complex<double> &re_im,int size_x)
-    : HorzLineJob(parent,image,x,y,d,re_im,size_x) {}
+    : HorzLineJobDouble(parent,image,x,y,d,re_im,size_x) {}
 private:
   void print(std::ostream &o) const {
-    o << "RecalcLimitHorzLineJob(" << x << ',' << y << ',' << size << ')';
+    o << "RecalcLimitHorzLineJobDouble(" << x << ',' << y << ',' << size << ')';
   }
   bool execute(void);
 };
 
-inline HorzLineJob *HorzLineJob::create(Job *parent,
+inline HorzLineJobDouble *HorzLineJobDouble::create(Job *parent,
                                         const MandelImage &image,int x,int y,
                                         unsigned int *d,
                                         const Complex<double> &re_im,
                                         int size_x) {
   return
      (image.getRecalcLimit() > 0)
-   ? new RecalcLimitHorzLineJob(parent,image,x,y,d,re_im,size_x)
-   : new HorzLineJob(parent,image,x,y,d,re_im,size_x);
+   ? new RecalcLimitHorzLineJobDouble(parent,image,x,y,d,re_im,size_x)
+   : new HorzLineJobDouble(parent,image,x,y,d,re_im,size_x);
 }
 
-bool RecalcLimitHorzLineJob::execute(void) {
+bool RecalcLimitHorzLineJobDouble::execute(void) {
   VECTOR_TYPE mr[VECTOR_SIZE];
   VECTOR_TYPE mi[VECTOR_SIZE];
   unsigned int tmp[VECTOR_SIZE];
   unsigned int *pos[VECTOR_SIZE];
-  unsigned int *d = HorzLineJob::d;
-  int x = HorzLineJob::x;
-  int size_x = HorzLineJob::size;
+  unsigned int *d = HorzLineJobDouble::d;
+  int x = HorzLineJobDouble::x;
+  int size_x = HorzLineJobDouble::size;
   int vector_count = 0;
   int count = 0;
   for (;size_x>0;size_x--,d++,x++,re_im+=image.getDReIm()) {
@@ -158,12 +191,12 @@ bool RecalcLimitHorzLineJob::execute(void) {
     }
     if (size_x > VECTOR_SIZE && image.nr_of_waiting_threads) {
       const int size_x0 = ((size_x/2)+(VECTOR_SIZE-1)) & (~(VECTOR_SIZE-1));
-      image.thread_pool.queueJob(new RecalcLimitHorzLineJob(
+      image.thread_pool.queueJob(new RecalcLimitHorzLineJobDouble(
                                        getParent(),image,x+size_x0,y,
                                        d+size_x0,
                                        re_im+size_x0*image.getDReIm(),
                                        size_x-size_x0));
-      HorzLineJob::size -= (size_x-size_x0);
+      HorzLineJobDouble::size -= (size_x-size_x0);
       size_x = size_x0;
     }
       // process pixel at (re_im)=(x,y)=*d
@@ -195,37 +228,37 @@ bool RecalcLimitHorzLineJob::execute(void) {
   return true;
 }
 
-bool HorzLineJob::execute(void) {
+bool HorzLineJobDouble::execute(void) {
 //if (y == 0)
-//cout << "HorzLineJob(" << x << ',' << y << ',' << size
+//cout << "HorzLineJobDouble(" << x << ',' << y << ',' << size
 //     << ")::execute begin" << endl;
   VECTOR_TYPE mr[VECTOR_SIZE];
   VECTOR_TYPE mi[VECTOR_SIZE];
-  unsigned int *d = HorzLineJob::d;
-  int x = HorzLineJob::x;
-  int size_x = HorzLineJob::size;
+  unsigned int *d = HorzLineJobDouble::d;
+  int x = HorzLineJobDouble::x;
+  int size_x = HorzLineJobDouble::size;
   int count = 0;
   for (;size_x>=VECTOR_SIZE;x+=VECTOR_SIZE,size_x-=VECTOR_SIZE,d+=VECTOR_SIZE) {
     if (terminate_flag) goto exit_loop;
     if (size_x > VECTOR_SIZE && image.nr_of_waiting_threads) {
       const int size_x0 = ((size_x/2)+(VECTOR_SIZE-1)) & (~(VECTOR_SIZE-1));
-      image.thread_pool.queueJob(new HorzLineJob(getParent(),image,x+size_x0,y,
+      image.thread_pool.queueJob(new HorzLineJobDouble(getParent(),image,x+size_x0,y,
                                                  d+size_x0,
                                                  re_im+size_x0*image.getDReIm(),
                                                  size_x-size_x0));
 //if (y == 0)
-//cout << "HorzLineJob: split off: " << x+size_x0 << ", " << size_x-size_x0
+//cout << "HorzLineJobDouble: split off: " << x+size_x0 << ", " << size_x-size_x0
 //     << endl;
-      HorzLineJob::size -= (size_x-size_x0);
+      HorzLineJobDouble::size -= (size_x-size_x0);
       size_x = size_x0;
 //if (y == 0)
-//cout << "HorzLineJob: split rem: " << HorzLineJob::x
-//     << ", " << HorzLineJob::size << endl;
+//cout << "HorzLineJobDouble: split rem: " << HorzLineJobDouble::x
+//     << ", " << HorzLineJobDouble::size << endl;
     }
     for (int i=0;i<VECTOR_SIZE;i++,re_im+=image.getDReIm()) {
 #ifdef DEBUG
       if (d[i]) {
-        cout << "HorzLineJob::execute: double drawing" << endl;
+        cout << "HorzLineJobDouble::execute: double drawing" << endl;
         ABORT();
       }
 #endif
@@ -247,7 +280,7 @@ bool HorzLineJob::execute(void) {
     for (int i=0;i<size_x;i++) {
 #ifdef DEBUG
       if (d[i]) {
-        cout << "HorzLineJob::execute: double drawing2" << endl;
+        cout << "HorzLineJobDouble::execute: double drawing2" << endl;
         ABORT();
       }
 #endif
@@ -258,30 +291,31 @@ bool HorzLineJob::execute(void) {
   __atomic_add(&image.pixel_count,count);
   resetParent();
 //if (y == 0)
-//cout << "HorzLineJob::execute end" << endl;
+//cout << "HorzLineJobDouble::execute end" << endl;
   return true;
 }
 
 
 
-class VertLineJob : public LineJob {
+class VertLineJobDouble : public LineJobDouble {
 public:
   static inline ChildJob *create(Job *parent,
                                  const MandelImage &image,int x,int y,
                                  int size_y);
-  static inline VertLineJob *create(Job *parent,
+  static inline VertLineJobDouble *create(Job *parent,
                                     const MandelImage &image,int x,int y,
                                     unsigned int *d,
                                     const Complex<double> &re_im,
                                     int size_y);
 protected:
-  VertLineJob(Job *parent,
+  VertLineJobDouble(Job *parent,
               const MandelImage &image,int x,int y,unsigned int *d,
               const Complex<double> &re_im,int size_y)
-    : LineJob(parent,image,x,y,d,re_im,size_y) {}
+    : LineJobDouble(parent,image,x,y,d,re_im,size_y) {}
 private:
+  int getDistance(const int xy[2]) const {return getDistanceHorz(xy);}
   void print(std::ostream &o) const {
-    o << "VertLineJob(" << x << ',' << y << ',' << size << ')';
+    o << "VertLineJobDouble(" << x << ',' << y << ',' << size << ')';
   }
   bool execute(void);
   void drawToTexture(void) const {
@@ -289,7 +323,7 @@ private:
     unsigned int tmp[size];
     unsigned int *p = tmp;
     int h = size;
-    const unsigned int *d = VertLineJob::d;
+    const unsigned int *d = VertLineJobDouble::d;
     do {
       *p++ = *d;
       d += image.getScreenWidth();
@@ -299,8 +333,8 @@ private:
                     x,y,1,size,
                     GL_RGBA,GL_UNSIGNED_BYTE,tmp);
 //    int h = size;
-//    int y = VertLineJob::y;
-//    const unsigned int *d = VertLineJob::d;
+//    int y = VertLineJobDouble::y;
+//    const unsigned int *d = VertLineJobDouble::d;
 //    do {
 //      glTexSubImage2D(GL_TEXTURE_2D,0,
 //                      x,y,1,1,
@@ -317,38 +351,38 @@ private:
   }
 };
 
-class RecalcLimitVertLineJob : public VertLineJob {
+class RecalcLimitVertLineJobDouble : public VertLineJobDouble {
 public:
-  RecalcLimitVertLineJob(Job *parent,
+  RecalcLimitVertLineJobDouble(Job *parent,
                          const MandelImage &image,int x,int y,unsigned int *d,
                          const Complex<double> &re_im,int size_y)
-    : VertLineJob(parent,image,x,y,d,re_im,size_y) {}
+    : VertLineJobDouble(parent,image,x,y,d,re_im,size_y) {}
 private:
   void print(std::ostream &o) const {
-    o << "RecalcLimitVertLineJob(" << x << ',' << y << ',' << size << ')';
+    o << "RecalcLimitVertLineJobDouble(" << x << ',' << y << ',' << size << ')';
   }
   bool execute(void);
 };
 
-inline VertLineJob *VertLineJob::create(Job *parent,
+inline VertLineJobDouble *VertLineJobDouble::create(Job *parent,
                                         const MandelImage &image,int x,int y,
                                         unsigned int *d,
                                         const Complex<double> &re_im,
                                         int size_y) {
   return
      (image.getRecalcLimit() > 0)
-   ? new RecalcLimitVertLineJob(parent,image,x,y,d,re_im,size_y)
-   : new VertLineJob(parent,image,x,y,d,re_im,size_y);
+   ? new RecalcLimitVertLineJobDouble(parent,image,x,y,d,re_im,size_y)
+   : new VertLineJobDouble(parent,image,x,y,d,re_im,size_y);
 }
 
-bool RecalcLimitVertLineJob::execute(void) {
+bool RecalcLimitVertLineJobDouble::execute(void) {
   VECTOR_TYPE mr[VECTOR_SIZE];
   VECTOR_TYPE mi[VECTOR_SIZE];
   unsigned int tmp[VECTOR_SIZE];
   unsigned int *pos[VECTOR_SIZE];
-  unsigned int *d = VertLineJob::d;
-  int y = VertLineJob::y;
-  int size_y = VertLineJob::size;
+  unsigned int *d = VertLineJobDouble::d;
+  int y = VertLineJobDouble::y;
+  int size_y = VertLineJobDouble::size;
   int vector_count = 0;
   int count = 0;
   for (;size_y>0;
@@ -368,12 +402,12 @@ bool RecalcLimitVertLineJob::execute(void) {
     }
     if (size_y > VECTOR_SIZE && image.nr_of_waiting_threads) {
       const int size_y0 = ((size_y/2)+(VECTOR_SIZE-1)) & (~(VECTOR_SIZE-1));
-      image.thread_pool.queueJob(new RecalcLimitVertLineJob(
+      image.thread_pool.queueJob(new RecalcLimitVertLineJobDouble(
                                        getParent(),image,x,y+size_y0,
                                        d+size_y0*image.getScreenWidth(),
                                        re_im+size_y0*image.getDReIm().cross(),
                                        size_y-size_y0));
-      VertLineJob::size -= (size_y-size_y0);
+      VertLineJobDouble::size -= (size_y-size_y0);
       size_y = size_y0;
     }
       // process pixel at (re,im)=(x,y)=*d
@@ -405,30 +439,30 @@ bool RecalcLimitVertLineJob::execute(void) {
   return true;
 }
 
-bool VertLineJob::execute(void) {
-//cout << "VertLineJob(" << x << ',' << y << ',' << size
+bool VertLineJobDouble::execute(void) {
+//cout << "VertLineJobDouble(" << x << ',' << y << ',' << size
 //     << ")::execute begin: " << re << endl;
   if (size <= 0) ABORT();
   VECTOR_TYPE mr[VECTOR_SIZE];
   VECTOR_TYPE mi[VECTOR_SIZE];
   unsigned int tmp[VECTOR_SIZE];
-  unsigned int *d = VertLineJob::d;
-  int size_y = VertLineJob::size;
+  unsigned int *d = VertLineJobDouble::d;
+  int size_y = VertLineJobDouble::size;
   int count = 0;
-  for (int y=VertLineJob::y;size_y>VECTOR_SIZE;
+  for (int y=VertLineJobDouble::y;size_y>VECTOR_SIZE;
        y+=VECTOR_SIZE,size_y-=VECTOR_SIZE) {
     if (terminate_flag) goto exit_loop;
     if (image.nr_of_waiting_threads) {
       const int size_y0 = ((size_y/2)+(VECTOR_SIZE-1)) & (~(VECTOR_SIZE-1));
-      image.thread_pool.queueJob(new VertLineJob(
+      image.thread_pool.queueJob(new VertLineJobDouble(
                                        getParent(),image,x,y+size_y0,
                                        d+size_y0*image.getScreenWidth(),
                                        re_im+size_y0*image.getDReIm().cross(),
                                        size_y-size_y0));
 //if (x == 399)
-//cout << "VertLineJob: split off: " << y+size_y0 << ", " << size_y-size_y0
+//cout << "VertLineJobDouble: split off: " << y+size_y0 << ", " << size_y-size_y0
 //     << endl;
-      VertLineJob::size -= (size_y-size_y0);
+      VertLineJobDouble::size -= (size_y-size_y0);
       size_y = size_y0;
       if (size_y <= VECTOR_SIZE) break;
     }
@@ -455,7 +489,7 @@ bool VertLineJob::execute(void) {
   __atomic_add(&image.pixel_count,count);
   exit_loop:
   resetParent();
-//cout << "VertLineJob(" << VertLineJob::x << ',' << VertLineJob::y
+//cout << "VertLineJobDouble(" << VertLineJobDouble::x << ',' << VertLineJobDouble::y
 //     << ")::execute end" << endl;
   return true;
 }
@@ -464,17 +498,13 @@ bool VertLineJob::execute(void) {
 
 
 
-class LineJobGmp : public ChildJob {
+class LineJobGmp : public LineJob {
 protected:
   LineJobGmp(Job *parent,
              const MandelImage &image,int x,int y,unsigned int *d,
              GmpFixedPointLockfree &re,
              GmpFixedPointLockfree &im,int size)
-    : ChildJob(parent),image(image),
-      x(x),y(y),d(d),re(re),im(im),size(size) {
-//    LineJobGmp::re.takeOwnership(re);
-//    LineJobGmp::im.takeOwnership(im);
-  }
+    : LineJob(parent,image,x,y,d,size),re(re),im(im) {}
 public:
   void *operator new(size_t size) {
     if (size != sizeof(LineJobGmp)) ABORT();
@@ -484,13 +514,8 @@ public:
   }
   void operator delete(void *p) {free_list.push(p);}
 protected:
-  const MandelImage &image;
-  const int x;
-  const int y;
-  unsigned int *const d;
   GmpFixedPointLockfree re;
   GmpFixedPointLockfree im;
-  int size;
   static FreeList free_list;
 };
 
@@ -511,6 +536,7 @@ protected:
                  GmpFixedPointLockfree &im,int size_x)
     : LineJobGmp(parent,image,x,y,d,re,im,size_x) {}
 private:
+  int getDistance(const int xy[2]) const {return getDistanceHorz(xy);}
   void print(std::ostream &o) const {
     o << "HorzLineJobGmp(" << x << ',' << y << ',' << size << ')';
   }
@@ -522,15 +548,15 @@ private:
   }
 };
 
-inline ChildJob *HorzLineJob::create(Job *parent,
+inline ChildJob *HorzLineJobDouble::create(Job *parent,
                                      const MandelImage &image,int x,int y,
                                      int size_x) {
   if (image.getPrecision() > 0) {
-//cout << "HorzLineJob::create: 100" << endl;
+//cout << "HorzLineJobDouble::create: 100" << endl;
     GmpFixedPointLockfree re;
-//cout << "HorzLineJob::create: 101" << endl;
+//cout << "HorzLineJobDouble::create: 101" << endl;
     GmpFixedPointLockfree im;
-//cout << "HorzLineJob::create: 102" << endl;
+//cout << "HorzLineJobDouble::create: 102" << endl;
       // one extra limb so that there is no carry/borrow:
     re.p[image.getPrecision()+1]
       = re.linCombMinusU1(image.getDRe(),x,image.getDIm(),y);
@@ -538,13 +564,13 @@ inline ChildJob *HorzLineJob::create(Job *parent,
       = im.linCombPlusU1(image.getDRe(),y,image.getDIm(),x);
     re.add2(image.getStartRe());
     im.add2(image.getStartIm());
-//cout << "HorzLineJob::create: 198" << endl;
+//cout << "HorzLineJobDouble::create: 198" << endl;
     return HorzLineJobGmp::create(
                              parent,image,x,y,
                              image.getData()+y*image.getScreenWidth()+x,
                              re,im,size_x);
   }
-  return HorzLineJob::create(
+  return HorzLineJobDouble::create(
                         parent,image,x,y,
                         image.getData()+y*image.getScreenWidth()+x,
                         Complex<double>(x,y)*image.getDReIm(),
@@ -696,6 +722,7 @@ protected:
                  GmpFixedPointLockfree &im,int size_y)
     : LineJobGmp(parent,image,x,y,d,re,im,size_y) {}
 private:
+  int getDistance(const int xy[2]) const {return getDistanceVert(xy);}
   void print(std::ostream &o) const {
     o << "VertLineJobGmp(" << x << ',' << y << ',' << size << ')';
   }
@@ -733,7 +760,7 @@ private:
   }
 };
 
-inline ChildJob *VertLineJob::create(Job *parent,
+inline ChildJob *VertLineJobDouble::create(Job *parent,
                                      const MandelImage &image,int x,int y,
                                      int size_y) {
   if (image.getPrecision() > 0) {
@@ -751,7 +778,7 @@ inline ChildJob *VertLineJob::create(Job *parent,
                             image.getData()+y*image.getScreenWidth()+x,
                             re,im,size_y);
   }
-  return VertLineJob::create(
+  return VertLineJobDouble::create(
                         parent,image,x,y,
                         image.getData()+y*image.getScreenWidth()+x,
                         Complex<double>(x,y)*image.getDReIm(),
@@ -920,6 +947,14 @@ protected:
     return free_list.malloc(size);
   }
   void operator delete(void *p) {free_list.push(p);}
+private:
+  int getDistance(const int xy[2]) const {
+    const int dist_x = (xy[0]<x) ? (x-xy[0]) :
+                       (x+size_x<=xy[0]) ? (xy[0]-x-size_x+1) : 0;
+    const int dist_y = (xy[1]<y) ? (y-xy[1]) :
+                       (y+size_y<=xy[1]) ? (xy[1]-y-size_y+1) : 0;
+    return dist_x + dist_y;
+  }
 protected:
   const MandelImage &image;
   const int x;
@@ -953,6 +988,9 @@ private:
     return free_list.malloc(size);
   }
   void operator delete(void *p) {free_list.push(p);}
+private:
+    // execute as soon as possible:
+  int getDistance(const int xy[2]) const {return -1;}
   void print(std::ostream &o) const {
     o << "FillRectJob("
       << x << ',' << y << ',' << size_x << ',' << size_y << ')';
@@ -1083,7 +1121,7 @@ private:
           return false;
         }
         image.thread_pool.queueJob(
-                            HorzLineJob::create(
+                            HorzLineJobDouble::create(
                               this,image,x,y+j,d,yh,w));
       }
       d = image_topleft+w;
@@ -1104,7 +1142,7 @@ private:
           return false;
         }
         image.thread_pool.queueJob(
-                            VertLineJob::create(
+                            VertLineJobDouble::create(
                               this,image,x+w,y,d,re_im,size_y));
       }
       return false;
@@ -1175,12 +1213,22 @@ void RectContentsJob::firstStageHorzFinished(void) {
       (image.getRecalcLimit() == 0 ||
        image.getMaxIter() <= image.getRecalcLimit())) return;
   const int wh = size_x / 2;
-  image.thread_pool.queueJob(
-                      RectContentsJob::create(
-                                         this,image,x,y,wh+1,size_y));
-  image.thread_pool.queueJob(
-                      RectContentsJob::create(
-                                         this,image,x+wh,y,size_x-wh,size_y));
+  const int xwh = x + wh;
+  if (xwh < image.getPriorityX()) {
+    image.thread_pool.queueJob(
+                        RectContentsJob::create(
+                                           this,image,x,y,wh+1,size_y));
+    image.thread_pool.queueJob(
+                        RectContentsJob::create(
+                                           this,image,xwh,y,size_x-wh,size_y));
+  } else {
+    image.thread_pool.queueJob(
+                        RectContentsJob::create(
+                                           this,image,xwh,y,size_x-wh,size_y));
+    image.thread_pool.queueJob(
+                        RectContentsJob::create(
+                                           this,image,x,y,wh+1,size_y));
+  }
 }
 
 void RectContentsJob::firstStageVertFinished(void) {
@@ -1188,12 +1236,22 @@ void RectContentsJob::firstStageVertFinished(void) {
       (image.getRecalcLimit() == 0 ||
        image.getMaxIter() <= image.getRecalcLimit())) return;
   const int hh = size_y / 2;
-  image.thread_pool.queueJob(
-                      RectContentsJob::create(
-                                         this,image,x,y,size_x,hh+1));
-  image.thread_pool.queueJob(
-                      RectContentsJob::create(
-                                         this,image,x,y+hh,size_x,size_y-hh));
+  const int yhh = y+hh;
+  if (yhh < image.getPriorityY()) {
+    image.thread_pool.queueJob(
+                        RectContentsJob::create(
+                                           this,image,x,y,size_x,hh+1));
+    image.thread_pool.queueJob(
+                        RectContentsJob::create(
+                                           this,image,x,yhh,size_x,size_y-hh));
+  } else {
+    image.thread_pool.queueJob(
+                        RectContentsJob::create(
+                                           this,image,x,yhh,size_x,size_y-hh));
+    image.thread_pool.queueJob(
+                        RectContentsJob::create(
+                                           this,image,x,y,size_x,hh+1));
+  }
 }
 
 bool RectContentsJob::execute(void) {
@@ -1298,54 +1356,39 @@ bool RectContentsJob::execute(void) {
                                          this,image,
                                          x+1,y+1,size_x-2,size_y-2));
     } else {
-//cout << "RectContentsJob::execute 300" << endl;
 #ifdef DEBUG
       image.assertEmpty(x+1,y+1,size_x-2,size_y-2);
 #endif
       if (size_x > size_y) {
-//cout << "RectContentsJob::execute 310" << endl;
           // split horizontally
         if (size_x <= 5) {
-//cout << "RectContentsJob::execute 311" << endl;
           image.thread_pool.queueJob(
                               FullRectJob::create(
                                              this,image,
                                              x+1,y+1,size_x-2,size_y-2));
-//cout << "RectContentsJob::execute 319" << endl;
         } else {
-//cout << "RectContentsJob::execute 321" << endl;
           const int wh = size_x / 2;
           Job *first_stage(HorzFirstStageJob::create(this));
-//cout << "RectContentsJob::execute 326" << endl;
           image.thread_pool.queueJob(
-                              VertLineJob::create(
+                              VertLineJobDouble::create(
                                              first_stage,image,
                                              x+wh,y+1,size_y-2));
-//cout << "RectContentsJob::execute 329" << endl;
         }
-//cout << "RectContentsJob::execute 349" << endl;
       } else {
-//cout << "RectContentsJob::execute 360" << endl;
           // split vertically
         if (size_y <= 5) {
-//cout << "RectContentsJob::execute 361" << endl;
           image.thread_pool.queueJob(
                               FullRectJob::create(
                                              this,image,
                                              x+1,y+1,size_x-2,size_y-2));
-//cout << "RectContentsJob::execute 369" << endl;
         } else {
-//cout << "RectContentsJob::execute 371" << endl;
           const int hh = size_y / 2;
           Job *first_stage(VertFirstStageJob::create(this));
-//cout << "RectContentsJob::execute 376" << endl;
           image.thread_pool.queueJob(
-                              HorzLineJob::create(
+                              HorzLineJobDouble::create(
                                              first_stage,image,
                                              x+1,y+hh,size_x-2));
-//cout << "RectContentsJob::execute 379" << endl;
         }
-//cout << "RectContentsJob::execute 399" << endl;
       }
     }
   }
@@ -1385,13 +1428,13 @@ bool MainJob::execute(void) {
   }
 #endif
   Job *first_stage(new MainFirstStageJob(this));
-  image.thread_pool.queueJob(HorzLineJob::create(
+  image.thread_pool.queueJob(HorzLineJobDouble::create(
                                    first_stage,image,0,0,size_x));
-  image.thread_pool.queueJob(HorzLineJob::create(
+  image.thread_pool.queueJob(HorzLineJobDouble::create(
                                    first_stage,image,0,size_y-1,size_x));
-  image.thread_pool.queueJob(VertLineJob::create(
+  image.thread_pool.queueJob(VertLineJobDouble::create(
                                    first_stage,image,0,1,size_y-2));
-  image.thread_pool.queueJob(VertLineJob::create(
+  image.thread_pool.queueJob(VertLineJobDouble::create(
                                    first_stage,image,size_x-1,1,size_y-2));
 //  cout << "MainJob::execute finished" << endl;
   return false;
@@ -1400,11 +1443,17 @@ bool MainJob::execute(void) {
 void MainJob::firstStageFinished(void) {
 //  cout << "MainJob::firstStageFinished" << endl;
   image.thread_pool.queueJob(
-RectContentsJob
+                      RectContentsJob
 //   FullRectJob
-     ::create(
-                                   this,image,0,0,size_x,size_y));
+                        ::create(this,image,0,0,size_x,size_y));
 }
 
 FreeList MainJob::free_list;
+
+bool JobQueue::NodeIsLess(const JobQueue::Node &a,const JobQueue::Node &b,
+                          const void *user_data) {
+  return (
+    a.job->getDistance((const int*)user_data) <
+    b.job->getDistance((const int*)user_data));
+}
 

@@ -141,9 +141,12 @@ int MyNativeActivity::getScreenHeight(void) const {
 
 void MyNativeActivity::callFromJavaThread(const boost::function<void(void)> &f,
                                           int delay_millis) {
+    // This function can be called from the java thread only,
+    // otherwise GetObjectClass etc.. will segfault terribly.
+    // Therefore no mutex is needed.
   int index;
   for (;;) {
-    MutexLock lock(java_cb_map_mutex);
+//    MutexLock lock(java_cb_map_mutex);
     index = java_cb_map_sequence++;
     boost::function<void(void)> &func(java_cb_map[index]);
     if (!func) {func = f;break;}
@@ -159,7 +162,7 @@ void MyNativeActivity::callFromJavaThread(const boost::function<void(void)> &f,
 void MyNativeActivity::calledFromJava(int index) {
   boost::function<void(void)> f;
   {
-    MutexLock lock(java_cb_map_mutex);
+//    MutexLock lock(java_cb_map_mutex);
     JavaCbMap::iterator it(java_cb_map.find(index));
     if (it == java_cb_map.end()) ABORT();
     f.swap(it->second);
@@ -308,7 +311,8 @@ void MyNativeActivity::addWindowFlags(int flags) {
 static MyNativeActivity *static_my_native_activity = 0;
 
 MyNativeActivity::MyNativeActivity(ANativeActivity *activity)
-  : activity(activity),window(0),input_queue(0),java_cb_map_sequence(0) {
+  : activity(activity),window(0),input_queue(0),java_cb_map_sequence(0),
+    continue_looping(true),loop_sem_waiting(false) {
 //setSystemUiVisibility(2+512);
   cout << "MyNativeActivity::MyNativeActivity, "
           "SDK version: " << activity->sdkVersion << endl;
@@ -494,6 +498,7 @@ void MyNativeActivity::onNativeWindowCreated(ANativeWindow *w) {
 void MyNativeActivity::onNativeWindowDestroyed(ANativeWindow *w) {
   cout << "MyNativeActivity::onNativeWindowDestroyed" << endl;
   continue_looping = false;
+  loop_sem.post();
   if (0 > pthread_join(thread,0)) {
     cout << "onNativeWindowDestroyed: pthread_join failed" << endl;
     ABORT();

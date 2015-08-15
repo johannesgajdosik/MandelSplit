@@ -20,6 +20,8 @@
 #ifndef LOCKFREE_STACK_H_
 #define LOCKFREE_STACK_H_
 
+#include "MergeSort.H"
+
 template<class Node> // requires Node *Node::next
 class LockfreeStack {
 #ifdef __x86_64__
@@ -38,6 +40,13 @@ public:
 ////      if (node == 0) return;
 ////      delete node;
 ////    }
+  }
+  void sortNonThreadSafe(bool (&is_less)(const Node&,const Node&,
+                                         const void *user_data),
+                         const void *user_data) {
+    Node *head = GetNode(head_and_counter);
+    MergeSort(head,is_less,user_data);
+    SetNode(head_and_counter,head);
   }
   void clearNonThreadSafe(void) {SetNode(head_and_counter,0);}
   bool empty(void) const {return (GetNode(head_and_counter) == 0);}
