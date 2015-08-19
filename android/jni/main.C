@@ -18,7 +18,7 @@
 */
 
 /*
-
+  #if ~/android/android-ndk-r9/ndk-build -j8 NDK_DEBUG=1
 cd jni;\
 if ~/android/android-ndk-r9/ndk-build -j8 NDK_DEBUG=1
 then
@@ -40,6 +40,8 @@ rm bin/MandelSplit-0.1.3.apk
 rm bin/MandelSplit-0.1.4.apk
 rm bin/MandelSplit-0.1.5.apk
 rm bin/MandelSplit-0.1.6.apk
+rm bin/MandelSplit-0.1.7.apk
+rm -r gen/* obj/* libs/* bin/*
 
 cd jni && \
 ~/android/android-ndk-r9/ndk-build -j8 && \
@@ -48,9 +50,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.7.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.7.apk && \
-adb install -r bin/MandelSplit-0.1.7.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.8.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.8.apk && \
+adb install -r bin/MandelSplit-0.1.8.apk
 
 
 */
@@ -355,7 +357,6 @@ private:
   void longPressFinished(void);
   void printText(float pos_x,float pos_y,const char *text) const;
   void showMaxIterDialog(void) const;
-  static void ShowPrecisionToast(void *user_data,int old_prec,int new_prec);
   void setGlColors(void) const;
   void main(void);
 private:
@@ -805,7 +806,11 @@ cout << "MNA::maxIterStartStop: mandel_drawer.setMaxIter("
 
 
 static const char vertex_shader[] =
+#ifdef USE_GLES
     "precision highp float;\n"
+#else
+    "#version 110\n"
+#endif
     "attribute vec4 a_position;\n"
     "attribute vec4 a_texcoor;\n"
     "varying vec4 v_texcoor;\n"
@@ -828,9 +833,11 @@ static const char fragment_shader1[] =
     "}\n";
 */
 static const char fragment_shader[] =
+#ifdef USE_GLES
     "precision highp float;\n"
-//    "precision mediump float;\n"
-//    "precision lowp float;\n"
+#else
+    "#version 110\n"
+#endif
     "uniform sampler2D contents_texture;\n"
     "uniform vec4 factors;\n"
     "uniform vec4 dimming;\n"
@@ -1087,8 +1094,11 @@ cout << "glTexImage2D ok: " << width << 'x' << height << endl;
 
   glDisable(GL_DEPTH_TEST);
 
-  glClearColor(0,0,0,1);
+  glClearColor(0.f,0.f,0.f,1.f);
   CheckGlError("glClearColor");
+
+  glEnable(GL_BLEND); // necessary for SGS3mini. Why?
+  glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
 
 CheckGlError("main 100");
 
@@ -1126,7 +1136,7 @@ CheckGlError("main 100");
 //    render_frame_counter.step();
     glClear(GL_COLOR_BUFFER_BIT);
     CheckGlError("glClear");
-    glDisable(GL_BLEND);
+//    glDisable(GL_BLEND); // results in black screen for SGS3mini. Why?
 
     setGlColors();
 
@@ -1144,8 +1154,8 @@ CheckGlError("main 100");
     const float progress = mandel_drawer.getProgress();
     if (enable_display_info || progress < 1.f) {
       font.prepareDrawing(width,height,GlunaticUI::mode_portrait);
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
+//      glEnable(GL_BLEND);
+//      glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
       if (enable_display_info) {
         const float h = floorf(1.2f*font.getHeight());
         char tmp[128];
