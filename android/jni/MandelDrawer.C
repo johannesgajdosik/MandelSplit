@@ -276,13 +276,27 @@ void MandelDrawer::startRecalc(void) {
 //                         0.5f*height - 1.f - tmp.im);
 //}
 
-void MandelDrawer::XYToReIm(const Vector<float,2> &screen_pos,
-                            Complex<FLOAT_TYPE> &re_im_pos) const {
-  MutexLock lock(mutex);
+void MandelDrawer::XYToReImPrivate(const Vector<float,2> &screen_pos,
+                                   Complex<FLOAT_TYPE> &re_im_pos) const {
   re_im_pos = params.unity_pixel;
   re_im_pos *= Complex<FLOAT_TYPE>(screen_pos[0] - 0.5f*width,
                                    0.5f*height-1.f-screen_pos[1]);
   re_im_pos += params.center;
+}
+
+
+void MandelDrawer::fitReset(void) {
+  MutexLock lock(mutex);
+  if (image->getPrecision() <= 0) {
+    params.unity_pixel = image->getDReIm();
+    params.center = image->getStart();
+  } else {
+    params.unity_pixel.re = image->getDRe().convert2ToMpf(image->getPrecision());
+    params.unity_pixel.im = image->getDIm().convert2ToMpf(image->getPrecision());
+    params.center.re = image->getStartRe().convert2ToMpf(image->getPrecision());
+    params.center.im = image->getStartIm().convert2ToMpf(image->getPrecision());
+  }
+  params.center += params.unity_pixel * Complex<FLOAT_TYPE>(0.5*width,0.5*height);
 }
 
 void MandelDrawer::fitReImPrivate(const Vector<float,2> &screen_pos,
@@ -309,19 +323,13 @@ void MandelDrawer::fitReImPrivate(const Vector<float,2> &screen_pos,
 //                     << ';' << params.unity_pixel << endl;
 }
 
-void MandelDrawer::fitReIm(const Vector<float,2> &screen_pos,
-                           const Complex<FLOAT_TYPE> &re_im_pos) {
-  MutexLock lock(mutex);
-  fitReImPrivate(screen_pos,re_im_pos);
-}
-
 const FLOAT_TYPE epsilon = 4.44e-16; // 2^-51
 const FLOAT_TYPE epsilon2 = epsilon*epsilon;
 
 int MandelDrawer::fitReIm(const Vector<float,2> &screen_pos0,
                           const Vector<float,2> &screen_pos1,
-                          const Complex<FLOAT_TYPE> &re_im_pos0,
-                          const Complex<FLOAT_TYPE> &re_im_pos1,
+                          Complex<FLOAT_TYPE> &re_im_pos0,
+                          Complex<FLOAT_TYPE> &re_im_pos1,
                           bool enable_rotation) {
   MutexLock lock(mutex);
 //  cout << "fitReIm(" << screen_pos0 << ',' << screen_pos1
@@ -369,6 +377,11 @@ int MandelDrawer::fitReIm(const Vector<float,2> &screen_pos0,
   fitReImPrivate(screen_pos,re_im_pos);
 //  cout << " ,new: " << params.center
 //       << ';' << params.unity_pixel << endl;
+  if (!enable_rotation) {
+    // recalculate re_im_pos0, re_im_pos1:
+    XYToReImPrivate(screen_pos0,re_im_pos0);
+    XYToReImPrivate(screen_pos1,re_im_pos1);
+  }
   return params.precision;
 }
 

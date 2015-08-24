@@ -171,6 +171,15 @@ void MyNativeActivity::calledFromJava(int index) {
   f();
 }
 
+void MyNativeActivity::resetLongPressTimeout(int delay_millis) {
+  JNIEnv *jni_env = activity->env;
+  const jclass cls_NativeActivity = jni_env->GetObjectClass(activity->clazz);
+  const jmethodID mid = jni_env->GetMethodID(cls_NativeActivity,
+                                             "resetLongPressTimeout","(I)V");
+  jni_env->DeleteLocalRef(cls_NativeActivity);
+  jni_env->CallVoidMethod(activity->clazz,mid,delay_millis);
+}
+
 
 
 
@@ -573,4 +582,13 @@ JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_calle
   if (static_my_native_activity)
     static_my_native_activity->calledFromJava(user_data);
 }
+
+JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_longPressTimeout(
+                         JNIEnv *env,jobject obj) {
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_calledFromJava: "
+//       << user_data << endl;
+  if (static_my_native_activity)
+    static_my_native_activity->longPressTimeout();
+}
+
 }

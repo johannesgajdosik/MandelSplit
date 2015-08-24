@@ -35,12 +35,6 @@ meaningful stack trace:
 adb logcat | ~/android/android-ndk-r9/ndk-stack -sym obj/local/armeabi-v7a
 
 Release:
-rm bin/MandelSplit-0.1.2.apk
-rm bin/MandelSplit-0.1.3.apk
-rm bin/MandelSplit-0.1.4.apk
-rm bin/MandelSplit-0.1.5.apk
-rm bin/MandelSplit-0.1.6.apk
-rm bin/MandelSplit-0.1.7.apk
 rm -r gen/* obj/* libs/* bin/*
 
 cd jni && \
@@ -50,9 +44,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.8.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.8.apk && \
-adb install -r bin/MandelSplit-0.1.8.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.9.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.9.apk && \
+adb install -r bin/MandelSplit-0.1.9.apk
 
 
 */
@@ -354,11 +348,14 @@ private:
   void startMouseDrag(void);
   void finishMouseDrag(void);
   void performMouseDrag(void);
-  void longPressFinished(void);
+  void longPressTimeout(void);
   void printText(float pos_x,float pos_y,const char *text) const;
   void showMaxIterDialog(void) const;
   void setGlColors(void) const;
   void main(void);
+private:
+    // TapDetector:
+//  void startTap(
 private:
   int width;
   int height;
@@ -382,11 +379,14 @@ private:
   unsigned int color_palette;
   MandelDrawer mandel_drawer;
   GlunaticUI::Font font;
+  long long int tap_start_time;
   long long int long_press_start_time;
+  Vector<float,2> tap_start_pos;
   Vector<float,2> long_press_start_pos;
   volatile bool draw_once;
   bool enable_display_info;
   bool enable_turning;
+  bool enable_long_press;
 private:
   struct SavedState {
     bool enable_display_info;
@@ -427,10 +427,12 @@ MNA::MNA(ANativeActivity *activity,
   precision = 0;
   new_precision = 0;
   color_palette = 0;
+  tap_start_time =
   long_press_start_time = 0;
   draw_once = false;
   enable_display_info = true;
   enable_turning = false;
+  enable_long_press = true;
   initializeFont("DejaVuSans.ttf",floorf(sqrtf(height)));
 
 #define FLAG_KEEP_SCREEN_ON 0x80
@@ -624,26 +626,31 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
             = AMotionEvent_getPointerId(event,p_index);
           if (p_id < 0) ABORT();
           if (pointer_id[0] >= 0) {
+              // 2nd, 3rd or 4th... finger
             if (pointer_id[1] >= 0) {
-              // not interested in 3rd or 4th finger
+              // not interested in 3rd or 4th... finger
             } else {
+                // tap start with 2nd finger
               pointer_id[1] = p_id;
               pointer_2d[1][0] = AMotionEvent_getX(event,p_index);
               pointer_2d[1][1] = AMotionEvent_getY(event,p_index);
               startMouseDrag();
             }
+            tap_start_time =
             long_press_start_time = 0;
             draw_once = true;
 //            cout << "no tap because of second pointer" << endl;
           } else {
+              // tap start with 1st finger
             pointer_id[0] = p_id;
             pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
             pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
             startMouseDrag();
+            tap_start_pos =
+            long_press_start_pos = pointer_2d[0];
+            tap_start_time =
             long_press_start_time = GetNow();
-            draw_once = false;
-            callFromJavaThread(boost::bind(&MNA::longPressFinished,this),
-                               300);
+            resetLongPressTimeout(300);
             long_press_start_pos = pointer_2d[0];
 //            cout << "tap started: " << long_press_start_pos << endl;
           }
@@ -655,47 +662,68 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
                 >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
           const int32_t p_id
             = AMotionEvent_getPointerId(event,p_index);
+          long_press_start_time = 0;
           if (p_id == pointer_id[0]) {
-            pointer_id[0] = -1;
-            pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
-            pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
-            if (long_press_start_time != 0 && pointer_id[1] < 0) {
-                // this is a tap
-              cout << "tap at " << pointer_2d[0] << endl;
-              long_press_start_time = 0;
-//              draw_once = true;
-//              showMaxIterDialog();
-              mandel_drawer.setPriorityPoint(pointer_2d[0]);
+              // 1st finger released
+            if (pointer_id[1] < 0) {
+              pointer_id[0] = -1;
+              pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
+              pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
+              if (GetNow() <= tap_start_time + 500000) {
+                  // this is a tap
+                cout << "tap at " << pointer_2d[0] << endl;
+//                draw_once = true;
+                mandel_drawer.setPriorityPoint(tap_start_pos);
+                mandel_drawer.fitReset();
+              } else {
+                finishMouseDrag();
+              }
+              enable_long_press = true;
             } else {
-              finishMouseDrag();
+                // the 2nd finger is still pressed,
+                // just exchange pointer 0 and 1:
+              drag_start_pos[0] = drag_start_pos[1];
+              pointer_2d[0] = pointer_2d[1];
+              pointer_id[0] = pointer_id[1];
+              pointer_id[1] = -1;
             }
           } else if (p_id == pointer_id[1]) {
+              // 2nd finger released
             pointer_id[1] = -1;
-            pointer_2d[1][0] = AMotionEvent_getX(event,p_index);
-            pointer_2d[1][1] = AMotionEvent_getY(event,p_index);
-            finishMouseDrag();
           }
+          tap_start_time = 0;
         } break;
         case AMOTION_EVENT_ACTION_MOVE: {
           const size_t pointer_count = AMotionEvent_getPointerCount(event);
           for (size_t p_index=0;p_index<pointer_count;p_index++) {
             const int32_t p_id = AMotionEvent_getPointerId(event,p_index);
             if (p_id == pointer_id[0]) {
-              const Vector<float,2> curr_pos(AMotionEvent_getX(event,p_index),
-                                             AMotionEvent_getY(event,p_index));
-              if (long_press_start_time == 0) {
-                pointer_2d[0] = curr_pos;
-              } else if ((curr_pos-pointer_2d[0]).length2() >= tap_limit) {
-                long_press_start_time = 0;
-                draw_once = true;
-                pointer_2d[0] = curr_pos;
+              pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
+              pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
+              const float dq
+                  = (pointer_2d[0]-tap_start_pos).length2();
+              if (dq > tap_limit) {
+                tap_start_time = 0;
+              }
+              if (enable_long_press) {
+                if (dq > 25.f*long_press_limit) {
+                  enable_long_press = false;
+                  long_press_start_time = 0;
+                } else {
+                  if ((pointer_2d[0]-long_press_start_pos).length2()
+                     > long_press_limit) {
+                    long_press_start_pos = pointer_2d[0];
+                    long_press_start_time = GetNow();
+                    resetLongPressTimeout(450);
+                  }
+                }
               }
             } else if (p_id == pointer_id[1]) {
               pointer_2d[1][0] = AMotionEvent_getX(event,p_index);
               pointer_2d[1][1] = AMotionEvent_getY(event,p_index);
             }
           }
-          if (long_press_start_time == 0) performMouseDrag();
+          performMouseDrag();
         } break;
       }
     } return 1; // handled
@@ -765,14 +793,12 @@ void MNA::performMouseDrag(void) {
   }
 }
 
-void MNA::longPressFinished(void) {
-  if (pointer_id[0] >= 0 && pointer_id[1] < 0 &&
-      long_press_start_time != 0 &&
-      (pointer_2d[0]-long_press_start_pos).length2() <= long_press_limit) {
+void MNA::longPressTimeout(void) {
+  if (long_press_start_time != 0) {
     performHapticFeedback();
     pointer_id[0] = -1;
-//    finishMouseDrag();
     long_press_start_time = 0;
+    mandel_drawer.fitReset();
     draw_once = true;
     showMaxIterDialog();
   }

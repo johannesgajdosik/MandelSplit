@@ -99,8 +99,10 @@ public:
   virtual void enableTurning(bool enable) {}
   void callFromJavaThread(const boost::function<void(void)> &f,
                           int delay_millis);
+  void resetLongPressTimeout(int delay_millis);
     // internal function, do not call:
   void calledFromJava(int index);
+  virtual void longPressTimeout(void) {}
 protected:
   virtual void onResume(void);
   virtual void onPause(void);

@@ -116,16 +116,23 @@ public:
   int getHeight(void) const {return height;}
 
   void XYToReIm(const Vector<float,2> &screen_pos,
-                Complex<FLOAT_TYPE> &re_im_pos) const;
+                Complex<FLOAT_TYPE> &re_im_pos) const {
+    MutexLock lock(mutex);
+    XYToReImPrivate(screen_pos,re_im_pos);
+  }
 
     // set Transformation to ReIm coordinates:
+  void fitReset(void);
   void fitReIm(const Vector<float,2> &screen_pos,
-               const Complex<FLOAT_TYPE> &re_im_pos);
+               const Complex<FLOAT_TYPE> &re_im_pos) {
+    MutexLock lock(mutex);
+    fitReImPrivate(screen_pos,re_im_pos);
+  }
     // returns params.precision, which may have changed:
   int fitReIm(const Vector<float,2> &screen_pos0,
               const Vector<float,2> &screen_pos1,
-              const Complex<FLOAT_TYPE> &re_im_pos0,
-              const Complex<FLOAT_TYPE> &re_im_pos1,
+              Complex<FLOAT_TYPE> &re_im_pos0,
+              Complex<FLOAT_TYPE> &re_im_pos1,
               bool enable_rotation);
     // returns true if unity_pixel had to be changed
   bool disableRotation(void);
@@ -137,6 +144,8 @@ public:
   float getProgress(void) const;
   void setPriorityPoint(const Vector<float,2> screen_pos);
 private:
+  void XYToReImPrivate(const Vector<float,2> &screen_pos,
+                       Complex<FLOAT_TYPE> &re_im_pos) const;
   void fitReImPrivate(const Vector<float,2> &screen_pos,
                       const Complex<FLOAT_TYPE> &re_im_pos);
 

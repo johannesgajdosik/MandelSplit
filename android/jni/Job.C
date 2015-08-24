@@ -51,6 +51,10 @@ private:
     ABORT();
     return 0;
   }
+  int getSize(void) const {
+    ABORT();
+    return 0;
+  }
   bool isFirstStageJob(void) const {return true;}
   bool execute(void) {return false;}
   static FreeList free_list;
@@ -84,6 +88,7 @@ protected:
                        (y+size<=xy[1]) ? (xy[1]-y-size+1) : 0;
     return dist_x + dist_y;
   }
+  int getSize(void) const {return size;}
 protected:
   const MandelImage &image;
   const int x;
@@ -955,6 +960,7 @@ private:
                        (y+size_y<=xy[1]) ? (xy[1]-y-size_y+1) : 0;
     return dist_x + dist_y;
   }
+  int getSize(void) const {return (size_x > size_y) ? size_x : size_y;}
 protected:
   const MandelImage &image;
   const int x;
@@ -1452,8 +1458,10 @@ FreeList MainJob::free_list;
 
 bool JobQueue::NodeIsLess(const JobQueue::Node &a,const JobQueue::Node &b,
                           const void *user_data) {
-  return (
-    a.job->getDistance((const int*)user_data) <
-    b.job->getDistance((const int*)user_data));
+  const int da = a.job->getDistance((const int*)user_data);
+  const int db = b.job->getDistance((const int*)user_data);
+  if (da < db) return true;
+  if (da > db) return false;
+  return (a.job->getSize() < b.job->getSize());
 }
 

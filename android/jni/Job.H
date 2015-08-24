@@ -62,6 +62,7 @@ public:
   virtual ~Job(void) {}
   virtual bool isFirstStageJob(void) const {return false;}
   virtual int getDistance(const int xy[2]) const = 0;
+  virtual int getSize(void) const = 0;
   virtual void print(std::ostream &o) const = 0;
   virtual bool execute(void) = 0;
   virtual void drawToTexture(void) const {}
@@ -102,6 +103,7 @@ private:
   MainJob(const MandelImage &image,int size_x,int size_y);
   ~MainJob(void);
   int getDistance(const int xy[2]) const {return 0;}
+  int getSize(void) const {return 0;}
   void print(std::ostream &o) const {o << "MainJob";}
   bool execute(void);
   friend class MainFirstStageJob;

@@ -417,6 +417,10 @@ public class MyNativeActivity extends NativeActivity {
     }
     final int user_data;
   };
+  private final class LongPressTimeoutRunnable implements Runnable {
+    @Override public void run() {MyNativeActivity.this.longPressTimeout();}
+  };
+  private Runnable long_press_timeout_runnable;
 
   public void callFromJavaThread(int delay_millis,int user_data) {
 //    Log.i("mandel-split","callFromJavaThread:"+delay_millis+","+user_data);
@@ -428,6 +432,11 @@ public class MyNativeActivity extends NativeActivity {
       call_from_java_thread_handler.post(
         new CallFromJavaThreadRunnable(user_data));
     }
+  }
+  public void resetLongPressTimeout(int delay_millis) {
+    call_from_java_thread_handler.removeCallbacks(long_press_timeout_runnable);
+    call_from_java_thread_handler.postDelayed(long_press_timeout_runnable,
+                                              delay_millis);
   }
   private Handler call_from_java_thread_handler;
 
@@ -441,6 +450,7 @@ public class MyNativeActivity extends NativeActivity {
     haptic_view = new View(this);
     haptic_view.setHapticFeedbackEnabled(true);
     setContentView(haptic_view);
+    long_press_timeout_runnable = new LongPressTimeoutRunnable();
     call_from_java_thread_handler = new Handler();
   }
 
@@ -454,4 +464,5 @@ public class MyNativeActivity extends NativeActivity {
   public static native void displayInfo(boolean enable_info);
   public static native void enableTurning(boolean enable_rotation);
   public static native void calledFromJava(int user_data);
+  public static native void longPressTimeout();
 }
