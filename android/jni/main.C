@@ -44,9 +44,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.9.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.9.apk && \
-adb install -r bin/MandelSplit-0.1.9.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.10.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.10.apk && \
+adb install -r bin/MandelSplit-0.1.10.apk
 
 
 */
@@ -1135,6 +1135,12 @@ CheckGlError("main 100");
   max_iter_slider_value = mandel_drawer.getMaxIter();
   
   cout << "MNA::main: starting loop" << endl;
+  
+  float last_progress = 1.f;
+  float first_progress = 0.f;
+  long long int last_now = 0;
+  long long int first_now = 0;
+  
   bool first_time = true;
   while (continue_looping) {
     CheckGlError("start_loop");
@@ -1178,6 +1184,7 @@ CheckGlError("main 100");
     glDisableVertexAttribArray(position_location);
 
     const float progress = mandel_drawer.getProgress();
+    const long long int now = GetNow();
     if (enable_display_info || progress < 1.f) {
       font.prepareDrawing(width,height,GlunaticUI::mode_portrait);
 //      glEnable(GL_BLEND);
@@ -1211,13 +1218,36 @@ CheckGlError("main 100");
         printText(10,6,tmp);
       }
       if (progress < 1.f) {
-        font.rectangle(0,height*0.95f,width*progress,height*0.05f,
+        font.rectangle(0,height-font.getHeight(),
+                       width*progress,font.getHeight(),
                        RGBA_TO_COLOR(128,96,32,192));
+        if (last_progress <= progress) {
+          const float d_p = progress - first_progress;
+          const long long int d_t = now - first_now;
+          if (d_p > 0.1f || d_t > 1000000LL) {
+            const double elapsed = 1e-6*(double)d_t;
+            const double remaining
+              = elapsed * ((double)((1.f-progress)/d_p));
+            char tmp[128];
+            snprintf(tmp,sizeof(tmp),
+                     "elapsed: %.1fs estimated remaining: %.1fs "
+                     "estimated total: %.1fs",
+                     elapsed,
+                     remaining,
+                     elapsed+remaining);
+            printText(10,height-font.getHeight(),tmp);
+          }
+        } else {
+          first_progress = progress;
+          first_now = now;
+        }
       }
       font.finishDrawing();
       glBindTexture(GL_TEXTURE_2D,contents_texture);
       glUseProgram(program);
     }
+    last_progress = progress;
+    last_now = now;
 
     if (!eglSwapBuffers(display,surface)) {
       CheckEglError("eglSwapBuffers");
