@@ -29,6 +29,11 @@
 #undef Complex
 #endif
 
+#ifdef __ANDROID__
+extern int opengl_version;
+#endif
+
+#define MY_GL_UNPACK_ROW_LENGTH 0x0CF2
 
 #include <unistd.h> // sysconf
 
@@ -581,9 +586,10 @@ bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
 
 //cout << "step: buffer rescaled" << endl;
       CheckGlError("before glTexSubImage2D 0");
-#ifndef __ANDROID__
-      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->getScreenWidth());
+#ifdef __ANDROID__
+      if (opengl_version > 2)
 #endif
+        glPixelStorei(MY_GL_UNPACK_ROW_LENGTH,image->getScreenWidth());
       glTexSubImage2D(GL_TEXTURE_2D,0,
                       0,0,width,height,
                       GL_RGBA,GL_UNSIGNED_BYTE,
@@ -630,9 +636,10 @@ bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
       
         // TODO: unite jobs and add currently executing jobs
         // GL_EXT_unpack_subimage seems to be not supported
-#ifndef __ANDROID__
-      glPixelStorei(GL_UNPACK_ROW_LENGTH,image->getScreenWidth());
+#ifdef __ANDROID__
+      if (opengl_version > 2)
 #endif
+        glPixelStorei(MY_GL_UNPACK_ROW_LENGTH,image->getScreenWidth());
       threads->draw(image);
 
 //      glTexSubImage2D(GL_TEXTURE_2D,0,

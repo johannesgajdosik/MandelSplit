@@ -44,9 +44,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.10.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.10.apk && \
-adb install -r bin/MandelSplit-0.1.10.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.11.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.11.apk && \
+adb install -r bin/MandelSplit-0.1.11.apk
 
 
 */
@@ -417,6 +417,8 @@ void MNA::initializeFont(const char *font_file,float font_size) {
 
 static inline float Sqr(float x) {return x*x;}
 
+int opengl_version = 0;
+
 MNA::MNA(ANativeActivity *activity,
          void *savedState,size_t savedStateSize)
     :MyNativeActivity(activity),program(0),
@@ -480,14 +482,23 @@ MNA::MNA(ANativeActivity *activity,
     ABORT();
   }
 
-  const EGLint context_attribs[] = {
-    EGL_CONTEXT_CLIENT_VERSION,2,
-    EGL_NONE
-  };
-  context = eglCreateContext(display,config,0,context_attribs);
-  if (context == EGL_NO_CONTEXT) {
-    CheckEglError("eglCreateContext");
-    ABORT();
+  for (opengl_version=3;;--opengl_version) {
+    const EGLint context_attribs[] = {
+      EGL_CONTEXT_CLIENT_VERSION,opengl_version,
+      EGL_NONE
+    };
+    context = eglCreateContext(display,config,0,context_attribs);
+    if (context == EGL_NO_CONTEXT) {
+      const EGLint rc = eglGetError();
+      cout << "MNA::MNA: eglCreateContext(version " << opengl_version
+           << ") failed: "
+           << EglErrorToString(rc) << endl;
+      if (opengl_version <= 2) ABORT();
+    } else {
+      cout << "MNA::MNA: eglCreateContext(version " << opengl_version
+           << ") ok" << endl;
+      break;
+    }
   }
 
   if (savedState) {
@@ -1166,8 +1177,9 @@ CheckGlError("main 100");
 //    cout << "MNA::main: rendering" << endl;
 
 //    render_frame_counter.step();
-    glClear(GL_COLOR_BUFFER_BIT);
-    CheckGlError("glClear");
+/// not necessary to call glClear
+///    glClear(GL_COLOR_BUFFER_BIT);
+///    CheckGlError("glClear");
 //    glDisable(GL_BLEND); // results in black screen for SGS3mini. Why?
 
     setGlColors();

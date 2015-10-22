@@ -71,7 +71,14 @@ void ThreadPool::cancelExecution(void) {
   while (dequeueDrawJob()) {}
 }
 
+#include <sys/time.h>
+#include <sys/resource.h>
+
 void *ThreadPool::MyThread::threadFunc(void) {
+  if (getpriority(PRIO_PROCESS,0) != 0) {
+      // Android 5.0 messes up priorities, try to set to sensible value:
+    setpriority(PRIO_PROCESS,0,19);
+  }
   for (;;) {
 //    cout << "ThreadPool::MyThread::threadFunc: dequeuing" << endl;
 //    Job::Ptr

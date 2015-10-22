@@ -42,7 +42,20 @@ public:
     return true;
   }
   void start(void *(func)(void*),void *context) {
-    const int rc = pthread_create(&thread,0,func,context);
+//    pthread_attr_t attr;
+//    pthread_attr_init(&attr);
+////    pthread_attr_setinheritsched(&attr,PTHREAD_EXPLICIT_SCHED);
+//    struct sched_param param;
+//    pthread_attr_getschedparam(&attr,&param);
+//    param.sched_priority = 3;
+//    pthread_attr_setschedparam(&attr,&param);
+    const int rc = pthread_create(&thread,
+                                  0,//&attr,
+                                  func,context);
+//    pthread_attr_destroy(&attr);
+    
+    
+    
     if (rc) {
       abort();
     }

@@ -34,6 +34,10 @@
 #undef Complex
 #endif
 
+#ifdef __ANDROID__
+extern int opengl_version;
+#endif
+
 FreeList JobQueueBase::free_list;
 
 class FirstStageJob : public ChildJob {
@@ -325,34 +329,26 @@ private:
   bool execute(void);
   void drawToTexture(void) const {
 #ifdef __ANDROID__
-    unsigned int tmp[size];
-    unsigned int *p = tmp;
-    int h = size;
-    const unsigned int *d = VertLineJobDouble::d;
-    do {
-      *p++ = *d;
-      d += image.getScreenWidth();
-      h--;
-    } while (h > 0);
-    glTexSubImage2D(GL_TEXTURE_2D,0,
-                    x,y,1,size,
-                    GL_RGBA,GL_UNSIGNED_BYTE,tmp);
-//    int h = size;
-//    int y = VertLineJobDouble::y;
-//    const unsigned int *d = VertLineJobDouble::d;
-//    do {
-//      glTexSubImage2D(GL_TEXTURE_2D,0,
-//                      x,y,1,1,
-//                      GL_RGBA,GL_UNSIGNED_BYTE,d);
-//      h--;
-//      y++;
-//      d += image.getScreenWidth();
-//    } while (h > 0);
-#else
-    glTexSubImage2D(GL_TEXTURE_2D,0,
-                    x,y,1,size,
-                    GL_RGBA,GL_UNSIGNED_BYTE,d);
+    if (opengl_version <= 2) {
+      unsigned int tmp[size];
+      unsigned int *p = tmp;
+      int h = size;
+      const unsigned int *d = VertLineJobDouble::d;
+      do {
+        *p++ = *d;
+        d += image.getScreenWidth();
+        h--;
+      } while (h > 0);
+      glTexSubImage2D(GL_TEXTURE_2D,0,
+                      x,y,1,size,
+                      GL_RGBA,GL_UNSIGNED_BYTE,tmp);
+    } else
 #endif
+    {
+      glTexSubImage2D(GL_TEXTURE_2D,0,
+                      x,y,1,size,
+                      GL_RGBA,GL_UNSIGNED_BYTE,d);
+    }
   }
 };
 
@@ -734,34 +730,26 @@ private:
   bool execute(void);
   void drawToTexture(void) const {
 #ifdef __ANDROID__
-    unsigned int tmp[size];
-    unsigned int *p = tmp;
-    int h = size;
-    const unsigned int *d = VertLineJobGmp::d;
-    do {
-      *p++ = *d;
-      d += image.getScreenWidth();
-      h--;
-    } while (h > 0);
-    glTexSubImage2D(GL_TEXTURE_2D,0,
-                    x,y,1,size,
-                    GL_RGBA,GL_UNSIGNED_BYTE,tmp);
-//    int h = size;
-//    int y = VertLineJobGmp::y;
-//    const unsigned int *d = VertLineJobGmp::d;
-//    do {
-//      glTexSubImage2D(GL_TEXTURE_2D,0,
-//                      x,y,1,1,
-//                      GL_RGBA,GL_UNSIGNED_BYTE,d);
-//      h--;
-//      y++;
-//      d += image.getScreenWidth();
-//    } while (h > 0);
-#else
-    glTexSubImage2D(GL_TEXTURE_2D,0,
-                    x,y,1,size,
-                    GL_RGBA,GL_UNSIGNED_BYTE,d);
+    if (opengl_version <= 2) {
+      unsigned int tmp[size];
+      unsigned int *p = tmp;
+      int h = size;
+      const unsigned int *d = VertLineJobGmp::d;
+      do {
+        *p++ = *d;
+        d += image.getScreenWidth();
+        h--;
+      } while (h > 0);
+      glTexSubImage2D(GL_TEXTURE_2D,0,
+                      x,y,1,size,
+                      GL_RGBA,GL_UNSIGNED_BYTE,tmp);
+    } else
 #endif
+    {
+      glTexSubImage2D(GL_TEXTURE_2D,0,
+                      x,y,1,size,
+                      GL_RGBA,GL_UNSIGNED_BYTE,d);
+    }
   }
 };
 
@@ -1023,21 +1011,24 @@ private:
   void drawToTexture(void) const {
     const unsigned int *d = image.getData()+x+y*(image.getScreenWidth());
 #ifdef __ANDROID__
-    int h = size_y;
-    int y = FillRectJob::y;
-    do {
-      glTexSubImage2D(GL_TEXTURE_2D,0,
-                      x,y,size_x,1,
-                      GL_RGBA,GL_UNSIGNED_BYTE,d);
-      h--;
-      y++;
-      d += image.getScreenWidth();
-    } while (h > 0);
-#else
-    glTexSubImage2D(GL_TEXTURE_2D,0,
-                    x,y,size_x,size_y,
-                    GL_RGBA,GL_UNSIGNED_BYTE,d);
+    if (opengl_version <= 2) {
+      int h = size_y;
+      int y = FillRectJob::y;
+      do {
+        glTexSubImage2D(GL_TEXTURE_2D,0,
+                        x,y,size_x,1,
+                        GL_RGBA,GL_UNSIGNED_BYTE,d);
+        h--;
+        y++;
+        d += image.getScreenWidth();
+      } while (h > 0);
+    } else
 #endif
+    {
+      glTexSubImage2D(GL_TEXTURE_2D,0,
+                      x,y,size_x,size_y,
+                      GL_RGBA,GL_UNSIGNED_BYTE,d);
+    }
   }
 private:
   const unsigned int value;

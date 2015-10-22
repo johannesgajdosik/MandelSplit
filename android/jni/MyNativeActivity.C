@@ -483,7 +483,15 @@ void MyNativeActivity::OnLowMemory(ANativeActivity *activity) {
   cout << "OnLowMemory" << endl;
 }
 
+#include <sys/time.h>
+#include <sys/resource.h>
+
 void *MyNativeActivity::Main(void *context) {
+    // reset thread priority to gui thread priority
+  if (getpriority(PRIO_PROCESS,0) != 0) {
+      // Android 5.0 messes up priorities, try to set to sensible value:
+    setpriority(PRIO_PROCESS,0,0);
+  }
   ((MyNativeActivity*)context)->main();
   return 0;
 }
@@ -498,7 +506,8 @@ void MyNativeActivity::onNativeWindowCreated(ANativeWindow *w) {
   cout << "MyNativeActivity::onNativeWindowCreated" << endl;
   window = w;
   continue_looping = true;
-  if (0 > pthread_create(&thread,0,MyNativeActivity::Main,this)) {
+  const int rc = pthread_create(&thread,0,MyNativeActivity::Main,this);
+  if (0 > rc) {
     cout << "onNativeWindowCreated: pthread_create failed" << endl;
     ABORT();
   }
