@@ -44,9 +44,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.11.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.11.apk && \
-adb install -r bin/MandelSplit-0.1.11.apk
+~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.12.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.12.apk && \
+adb install -r bin/MandelSplit-0.1.12.apk
 
 
 */
@@ -186,7 +186,7 @@ void CheckGlError(const char *description) {
   const GLenum rc = glGetError();
   if (rc != GL_NO_ERROR) {
     cout << description << ": " << GlErrorToString(rc) << endl;
-    abort();
+    if (rc != GL_OUT_OF_MEMORY) abort();
   }
 }
 
@@ -354,9 +354,6 @@ private:
   void setGlColors(void) const;
   void main(void);
 private:
-    // TapDetector:
-//  void startTap(
-private:
   int width;
   int height;
   const float tap_limit;
@@ -424,13 +421,12 @@ MNA::MNA(ANativeActivity *activity,
     :MyNativeActivity(activity),program(0),
      width(getScreenWidth()),
      height(getScreenHeight()),
-     tap_limit((5.f/2.25f)*Sqr(getDisplayDensity())),
-     long_press_limit((2.f*13.f/5.f)*tap_limit) {
+     tap_limit(10.f*Sqr(getDisplayDensity())),
+     long_press_limit(5.f*tap_limit) {
   precision = 0;
   new_precision = 0;
   color_palette = 0;
-  tap_start_time =
-  long_press_start_time = 0;
+  tap_start_time = long_press_start_time = 0;
   draw_once = false;
   enable_display_info = true;
   enable_turning = false;
@@ -647,8 +643,7 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
               pointer_2d[1][1] = AMotionEvent_getY(event,p_index);
               startMouseDrag();
             }
-            tap_start_time =
-            long_press_start_time = 0;
+            tap_start_time = long_press_start_time = 0;
             draw_once = true;
 //            cout << "no tap because of second pointer" << endl;
           } else {
@@ -657,12 +652,10 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
             pointer_2d[0][0] = AMotionEvent_getX(event,p_index);
             pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
             startMouseDrag();
-            tap_start_pos =
-            long_press_start_pos = pointer_2d[0];
-            tap_start_time =
-            long_press_start_time = GetNow();
+            tap_start_pos = long_press_start_pos = pointer_2d[0];
+            tap_start_time = long_press_start_time = GetNow();
+            postLoopSem();
             resetLongPressTimeout(300);
-            long_press_start_pos = pointer_2d[0];
 //            cout << "tap started: " << long_press_start_pos << endl;
           }
         } break;
@@ -686,6 +679,7 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
 //                draw_once = true;
                 mandel_drawer.setPriorityPoint(tap_start_pos);
                 mandel_drawer.fitReset();
+                draw_once = true;
               } else {
                 finishMouseDrag();
               }
@@ -713,18 +707,22 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
               pointer_2d[0][1] = AMotionEvent_getY(event,p_index);
               const float dq
                   = (pointer_2d[0]-tap_start_pos).length2();
-              if (dq > tap_limit) {
+              if (tap_start_time && dq > tap_limit) {
+//                cout << "no tap" << endl;
                 tap_start_time = 0;
               }
               if (enable_long_press) {
                 if (dq > 25.f*long_press_limit) {
+//                  cout << "no longpress" << endl;
                   enable_long_press = false;
                   long_press_start_time = 0;
                 } else {
                   if ((pointer_2d[0]-long_press_start_pos).length2()
                      > long_press_limit) {
+//                    cout << "resetting longpress" << endl;
                     long_press_start_pos = pointer_2d[0];
                     long_press_start_time = GetNow();
+                    postLoopSem();
                     resetLongPressTimeout(450);
                   }
                 }
@@ -1157,13 +1155,19 @@ CheckGlError("main 100");
     CheckGlError("start_loop");
     GLfloat entire_screen[8];
     MandelDrawer::Parameters params;
-    if (!(mandel_drawer.step(entire_screen,params) || draw_once ||
-          long_press_start_time == 0)) {
+    if (mandel_drawer.step(entire_screen,params)) {
+//      cout << "MNA::main: step wants redraw" << endl;
+    } else if (draw_once) {
+//      cout << "MNA::main: draw_once" << endl;
+    } else if (long_press_start_time != 0) {
+//      cout << "MNA::main: long_press_start_time" << endl;
+    } else {
       if (pointer_id[0] < 0 && pointer_id[1] < 0) {
         if (!first_time) {
           while (loop_sem.trywait()) {
             if (!continue_looping) goto exit_loop;
           }
+//          cout << "MNA::main: waiting" << endl;
           loop_sem_waiting = true;
           loop_sem.wait();
           loop_sem_waiting = false;
@@ -1177,9 +1181,11 @@ CheckGlError("main 100");
 //    cout << "MNA::main: rendering" << endl;
 
 //    render_frame_counter.step();
-/// not necessary to call glClear
-///    glClear(GL_COLOR_BUFFER_BIT);
-///    CheckGlError("glClear");
+
+      // without blending the new image would be blended with the old image,
+      // therefore glClear must be called
+    glClear(GL_COLOR_BUFFER_BIT);
+    CheckGlError("glClear");
 //    glDisable(GL_BLEND); // results in black screen for SGS3mini. Why?
 
     setGlColors();
@@ -1268,6 +1274,8 @@ CheckGlError("main 100");
   }
   exit_loop:
   eglMakeCurrent(display,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);
+    // destroy surface in order to prevent resource leak:
+  eglDestroySurface(display,surface);
   surface = EGL_NO_SURFACE;
   cout << "MNA::main: end" << endl;
 }

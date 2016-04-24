@@ -319,7 +319,29 @@ public class MyNativeActivity extends NativeActivity {
     ((WindowManager)getApplicationContext()
       .getSystemService(Context.WINDOW_SERVICE))
       .getDefaultDisplay().getMetrics(metrics);
-    return metrics.density;
+// sgs2: density =1.5, scaledDensity=1.5, densityDpi=240, widthPixels=800, heightPixels=480, xdpi=217.71428, ydpi=218.49463
+// sgtabs: density =2.0, scaledDensity=2.0, densityDpi=320, widthPixels=2560, heightPixels=1600, xdpi=359.646, ydpi=361.244
+// sgs3mini(236dpi): density =1.5, scaledDensity=1.5, densityDpi=240, widthPixels=800, heightPixels=480, xdpi=160.42105, ydpi=160.0
+// "android": density =1.5, scaledDensity=1.5, densityDpi=240, widthPixels=800, heightPixels=480, xdpi=240.0, ydpi=240.0
+// cubeu30gt2: density =1.5, scaledDensity=1.5, densityDpi=240, widthPixels=1920, heightPixels=1128, xdpi=225.77777, ydpi=224.73732
+    float rval = (metrics.xdpi+metrics.ydpi)/320;
+    if (rval < metrics.density || 2*metrics.density < rval) {
+      rval = metrics.density;
+    }
+    if (metrics.scaledDensity > metrics.density)
+    rval *= (metrics.scaledDensity/metrics.density);
+    Log.i("mandel-split",
+          "DisplayMetrics: "
+          + "density ="+metrics.density
+          +", scaledDensity="+metrics.scaledDensity
+          +", densityDpi="+metrics.densityDpi
+          +", widthPixels="+metrics.widthPixels
+          +", heightPixels="+metrics.heightPixels
+          +", xdpi="+metrics.xdpi
+          +", ydpi="+metrics.ydpi
+          +", heuristic density="+rval
+         );
+    return rval;
   }
 
   public int getScreenWidth() {

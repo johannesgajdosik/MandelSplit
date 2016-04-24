@@ -59,15 +59,19 @@ public:
     // returns true on overflow
   static mp_limb_t AssignFromDouble(mp_size_t n,mp_limb_t *p,bool &sign,
                                     double x);
-//  bool assignFromDouble(mp_size_t n,double x) {
-//    return AssignFromDouble(n,p,sign,x);
-//  }
+  bool assignFromDouble(mp_size_t n,double x) {
+    return AssignFromDouble(n,p,sign,x);
+  }
   void assign2FromDouble(const mp_size_t n,double x) {
     p[n+1] = AssignFromDouble(n+1,p,sign,x);
   }
   static double ConvertToDouble(const mp_size_t n,const mp_limb_t *p,bool sign);
+  static double ConvertToDoubleNew(const mp_size_t n,const mp_limb_t *p,bool sign);
   double convertToDouble(mp_size_t n) const {
     return ConvertToDouble(n,p,sign);
+  }
+  double convertToDoubleNew(mp_size_t n) const {
+    return ConvertToDoubleNew(n,p,sign);
   }
 //  void assignFromInt(mp_size_t n,long int x);
   

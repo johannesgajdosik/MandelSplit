@@ -38,6 +38,31 @@
 extern int opengl_version;
 #endif
 
+
+
+bool JobQueue::NodeIsLess(const JobQueue::Node &a,const JobQueue::Node &b,
+                          const void *user_data) {
+  const int da = a.job->getDistance((const int*)user_data);
+  const int db = b.job->getDistance((const int*)user_data);
+  if (da < db) return true;
+  if (da > db) return false;
+  return (a.job->getSize() < b.job->getSize());
+}
+
+
+class ChildJob : public Job {
+public:
+  Job *getParent(void) const {return parent.get();}
+protected:
+  ChildJob(Job *parent)
+    : Job(parent->terminate_flag),parent(parent) {}
+  void resetParent(void) {parent.reset();}
+private:
+  Job::Ptr parent; // keep parent alive
+};
+
+
+
 FreeList JobQueueBase::free_list;
 
 class FirstStageJob : public ChildJob {
@@ -255,14 +280,8 @@ bool HorzLineJobDouble::execute(void) {
                                                  d+size_x0,
                                                  re_im+size_x0*image.getDReIm(),
                                                  size_x-size_x0));
-//if (y == 0)
-//cout << "HorzLineJobDouble: split off: " << x+size_x0 << ", " << size_x-size_x0
-//     << endl;
       HorzLineJobDouble::size -= (size_x-size_x0);
       size_x = size_x0;
-//if (y == 0)
-//cout << "HorzLineJobDouble: split rem: " << HorzLineJobDouble::x
-//     << ", " << HorzLineJobDouble::size << endl;
     }
     for (int i=0;i<VECTOR_SIZE;i++,re_im+=image.getDReIm()) {
 #ifdef DEBUG
@@ -299,8 +318,6 @@ bool HorzLineJobDouble::execute(void) {
   exit_loop:
   __atomic_add(&image.pixel_count,count);
   resetParent();
-//if (y == 0)
-//cout << "HorzLineJobDouble::execute end" << endl;
   return true;
 }
 
@@ -1394,6 +1411,124 @@ bool RectContentsJob::execute(void) {
 }
 
 
+class EntireImageJob : public ChildJob {
+public:
+  static EntireImageJob *create(Job *parent,
+                                const MandelImage &image,int size_x,int size_y) {
+    return new EntireImageJob(parent,image,size_x,size_y);
+  }
+  void *operator new(size_t size) {
+    if (size != sizeof(EntireImageJob)) abort();
+    void *const rval = free_list.pop();
+    if (rval) return rval;
+    return free_list.malloc(size);
+  }
+  void operator delete(void *p) {free_list.push(p);}
+private:
+  EntireImageJob(Job *parent,const MandelImage &image,int size_x,int size_y)
+    : ChildJob(parent),image(image),size_x(size_x),size_y(size_y) {
+//      cout << "EntireImageJob::EntireImageJob" << endl;
+  };
+  int getDistance(const int xy[2]) const {return 0;}
+  int getSize(void) const {return 0;}
+  void print(std::ostream &o) const {o << "EntireImageJob";}
+  bool execute(void);
+  friend class EntireImageFirstStageJob;
+  void firstStageFinished(void);
+private:
+  const MandelImage &image;
+  const int size_x;
+  const int size_y;
+  static FreeList free_list;
+};
+
+class EntireImageFirstStageJob : public FirstStageJob {
+public:
+  EntireImageFirstStageJob(EntireImageJob *parent) : FirstStageJob(parent) {}
+private:
+  void print(std::ostream &o) const {o << "EntireImageFirstStageJob";}
+  ~EntireImageFirstStageJob(void) {
+//    cout << "EntireImageFirstStageJob::~EntireImageFirstStageJob" << endl;
+    static_cast<EntireImageJob*>(getParent())->firstStageFinished();
+  }
+};
+
+bool EntireImageJob::execute(void) {
+  Job *first_stage(new EntireImageFirstStageJob(this));
+  image.thread_pool.queueJob(HorzLineJobDouble::create(
+                                   first_stage,image,0,0,size_x));
+  image.thread_pool.queueJob(HorzLineJobDouble::create(
+                                   first_stage,image,0,size_y-1,size_x));
+  image.thread_pool.queueJob(VertLineJobDouble::create(
+                                   first_stage,image,0,1,size_y-2));
+  image.thread_pool.queueJob(VertLineJobDouble::create(
+                                   first_stage,image,size_x-1,1,size_y-2));
+//  cout << "EntireImageJob::execute finished" << endl;
+  return false;
+}
+
+void EntireImageJob::firstStageFinished(void) {
+//  cout << "EntireImageJob::firstStageFinished" << endl;
+  image.thread_pool.queueJob(
+                      RectContentsJob
+                        ::create(this,image,0,0,size_x,size_y));
+}
+
+FreeList EntireImageJob::free_list;
+
+
+
+class SearchInsideJob : public ChildJob {
+public:
+  static SearchInsideJob *create(Job *parent,
+                                const MandelImage &image,int size_x,int size_y) {
+    return new SearchInsideJob(parent,image,size_x,size_y);
+  }
+  void *operator new(size_t size) {
+    if (size != sizeof(SearchInsideJob)) abort();
+    void *const rval = free_list.pop();
+    if (rval) return rval;
+    return free_list.malloc(size);
+  }
+  void operator delete(void *p) {free_list.push(p);}
+private:
+  SearchInsideJob(Job *parent,const MandelImage &image,int size_x,int size_y)
+    : ChildJob(parent),image(image),size_x(size_x),size_y(size_y) {
+//      cout << "SearchInsideJob::SearchInsideJob" << endl;
+  };
+  int getDistance(const int xy[2]) const {return 0;}
+  int getSize(void) const {return 0;}
+  void print(std::ostream &o) const {o << "SearchInsideJob";}
+  bool execute(void);
+  friend class SearchInsideFirstStageJob;
+  void firstStageFinished(void);
+private:
+  const MandelImage &image;
+  const int size_x;
+  const int size_y;
+  static FreeList free_list;
+};
+
+FreeList SearchInsideJob::free_list;
+
+class SearchInsideFirstStageJob : public FirstStageJob {
+public:
+  SearchInsideFirstStageJob(SearchInsideJob *parent) : FirstStageJob(parent) {}
+private:
+  void print(std::ostream &o) const {o << "SearchInsideFirstStageJob";}
+  ~SearchInsideFirstStageJob(void) {
+//    cout << "SearchInsideFirstStageJob::~SearchInsideFirstStageJob" << endl;
+    static_cast<SearchInsideJob*>(getParent())->firstStageFinished();
+  }
+};
+
+bool SearchInsideJob::execute(void) {
+  struct Max
+}
+
+
+
+
 MainJob::MainJob(const MandelImage &image,int size_x,int size_y)
         :Job(image.thread_pool.terminate_flag),
          image(image),size_x(size_x),size_y(size_y) {
@@ -1405,17 +1540,7 @@ MainJob::~MainJob(void) {
   image.thread_pool.mainJobHasTerminated();
 }
 
-
-class MainFirstStageJob : public FirstStageJob {
-public:
-  MainFirstStageJob(MainJob *parent) : FirstStageJob(parent) {}
-private:
-  void print(std::ostream &o) const {o << "MainFirstStageJob";}
-  ~MainFirstStageJob(void) {
-//    cout << "MainFirstStageJob::~MainFirstStageJob" << endl;
-    static_cast<MainJob*>(getParent())->firstStageFinished();
-  }
-};
+FreeList MainJob::free_list;
 
 bool MainJob::execute(void) {
 #ifdef DEBUG
@@ -1424,35 +1549,13 @@ bool MainJob::execute(void) {
     memset(d,0,sizeof(unsigned int)*size_x);
   }
 #endif
-  Job *first_stage(new MainFirstStageJob(this));
-  image.thread_pool.queueJob(HorzLineJobDouble::create(
-                                   first_stage,image,0,0,size_x));
-  image.thread_pool.queueJob(HorzLineJobDouble::create(
-                                   first_stage,image,0,size_y-1,size_x));
-  image.thread_pool.queueJob(VertLineJobDouble::create(
-                                   first_stage,image,0,1,size_y-2));
-  image.thread_pool.queueJob(VertLineJobDouble::create(
-                                   first_stage,image,size_x-1,1,size_y-2));
+  if (image.getPrecision() <= 0) {
+    image.thread_pool.queueJob(EntireImageJob::create(this,image,size_x,size_y));
+  } else {
+    image.thread_pool.queueJob(EntireImageJob::create(this,image,size_x,size_y));
+  }
 //  cout << "MainJob::execute finished" << endl;
   return false;
 }
 
-void MainJob::firstStageFinished(void) {
-//  cout << "MainJob::firstStageFinished" << endl;
-  image.thread_pool.queueJob(
-                      RectContentsJob
-//   FullRectJob
-                        ::create(this,image,0,0,size_x,size_y));
-}
-
-FreeList MainJob::free_list;
-
-bool JobQueue::NodeIsLess(const JobQueue::Node &a,const JobQueue::Node &b,
-                          const void *user_data) {
-  const int da = a.job->getDistance((const int*)user_data);
-  const int db = b.job->getDistance((const int*)user_data);
-  if (da < db) return true;
-  if (da > db) return false;
-  return (a.job->getSize() < b.job->getSize());
-}
 

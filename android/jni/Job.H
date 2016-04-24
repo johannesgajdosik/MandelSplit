@@ -76,17 +76,6 @@ std::ostream &operator<<(std::ostream &o,const Job &j) {
   return o;
 }
 
-class ChildJob : public Job {
-public:
-  Job *getParent(void) const {return parent.get();}
-protected:
-  ChildJob(Job *parent)
-    : Job(parent->terminate_flag),parent(parent) {}
-  void resetParent(void) {parent.reset();}
-private:
-  Job::Ptr parent; // keep parent alive
-};
-
 class MainJob : public Job {
 public:
   static MainJob *create(const MandelImage &image,int size_x,int size_y) {
@@ -98,7 +87,6 @@ public:
     if (rval) return rval;
     return free_list.malloc(size);
   }
-  void operator delete(void *p) {free_list.push(p);}
 private:
   MainJob(const MandelImage &image,int size_x,int size_y);
   ~MainJob(void);
@@ -106,9 +94,7 @@ private:
   int getSize(void) const {return 0;}
   void print(std::ostream &o) const {o << "MainJob";}
   bool execute(void);
-  friend class MainFirstStageJob;
-  void firstStageFinished(void);
-private:
+protected:
   const MandelImage &image;
   const int size_x;
   const int size_y;

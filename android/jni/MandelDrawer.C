@@ -326,6 +326,7 @@ void MandelDrawer::fitReImPrivate(const Vector<float,2> &screen_pos,
 //                     << " -> " << re_im_pos
 //                     << "): " << params.center
 //                     << ';' << params.unity_pixel << endl;
+  setPriorityPointPrivate(screen_pos);
 }
 
 const FLOAT_TYPE epsilon = 4.44e-16; // 2^-51
@@ -487,6 +488,14 @@ void MandelDrawer::setPriorityPoint(const Vector<float,2> screen_pos) {
   threads->finishPause();
 }
 
+void MandelDrawer::setPriorityPointPrivate(const Vector<float,2> screen_pos) {
+  const int xy[2] = {
+    (int)floorf(0.5f+screen_pos[0]),
+    height-1-(int)floorf(0.5f+screen_pos[1])
+  };
+  image->setPriorityPoint(xy[0],xy[1]);
+}
+
 
 float MandelDrawer::getProgress(void) const {
   return image->pixel_count / (float)(width*height);
@@ -512,7 +521,7 @@ bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
     }
     if (unity_pixel_changed) {
       image->setRecalcLimit(0);
-      image->setPriorityPoint(-1,-1);
+//      image->setPriorityPoint(-1,-1);
     } else {
       image->setRecalcLimit(image->getMaxIter());
     }

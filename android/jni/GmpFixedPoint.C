@@ -20,6 +20,9 @@
 //#include <stdio.h>
 ////#include <stdarg.h>
 #include "GmpFixedPoint.H"
+// from gmp_impl.h
+extern "C"
+double __gmpn_get_d(const mp_limb_t*,mp_size_t size,mp_size_t sign,long exp);
 
 #include <math.h>
 #include <stdlib.h>
@@ -92,6 +95,156 @@ double GmpFixedPoint::ConvertToDouble(const mp_size_t n,
   }
   rval *= scale;
   return (sign) ? -rval : rval;
+}
+
+double GmpFixedPoint::ConvertToDoubleNew(mp_size_t n,
+                                         const mp_limb_t *const p,
+                                         const bool sign) {
+  int exp = 0;
+  while (p[n-1] == 0) {
+    n--;
+    if (n == 0) return 0.0;
+    exp -= (8*sizeof(mp_limb_t));
+//cout << "E: " << exp << endl;
+  }
+#ifdef X__x86_64
+  union MyIeeeDouble {
+    struct {
+      unsigned int manl:32;
+      unsigned int manh:20;
+      unsigned int exp:11;
+      unsigned int sig:1;
+    } s32;
+    struct {
+      unsigned long long int man:52;
+      unsigned int exp:11;
+      unsigned int sig:1;
+    } s;
+    double d;
+  } rval;
+  if (p[n-1] >= (1ULL<<53)) {
+    mp_limb_t q = p[n-1]>>1;
+    exp++;
+//cout << "E: " << exp << ", M: " << std::hex << q << std::dec << endl;
+    if (q >= (1ULL<<(52+6))) {
+      q >>= 6;
+      exp += 6;
+//cout << "E: " << exp << ", M: " << std::hex << q << std::dec << endl;
+    }
+    if (q >= (1ULL<<(52+3))) {
+      q >>= 3;
+      exp += 3;
+//cout << "E: " << exp << ", M: " << std::hex << q << std::dec << endl;
+    }
+    while (q >= (1ULL<<53)) {
+      q >>= 1;
+      exp++;
+//cout << "E: " << exp << ", M: " << std::hex << q << std::dec << endl;
+    }
+    rval.s.man = q;
+//cout << "M: " << std::hex << rval.s.man << std::dec << endl;
+  } else
+  if (p[n-1] < (1ULL<<52)) {
+    if (n == 1) {
+        // TODO: check for denormalization
+      mp_limb_t q = p[n-1]<<1;
+      exp--;
+      if (q < (1ULL<<(53-26))) {
+        q <<= 26;
+        exp -= 26;
+      }
+        // q >= (1ULL<<(53-27)
+      if (q < (1ULL<<(53-13))) {
+        q <<= 13;
+        exp -= 13;
+      }
+        // q >= (1ULL<<39)
+      if (q < (1ULL<<(53-7))) {
+        q <<= 7;
+        exp -= 7;
+      }
+        // q >= (1ULL<<46)
+      if (q < (1ULL<<(53-3))) {
+        q <<= 3;
+        exp -= 3;
+      }
+        // q >= (1ULL<<49)
+      while (q < (1ULL<<(53-1))) {
+        q <<= 1;
+        exp--;
+      }
+      rval.s.man = q;
+    } else {
+      mp_limb_t q[2];
+      if (p[n-1] >= (1ULL<<40)) {
+          // (1ULL<<40) <= p[n-1] < (1ULL<<52)
+        mpn_lshift(q,p+n-2,2,12);
+        exp -= 12;
+          // (1ULL<<52) <= q[1] < (1ULL<<64)
+        if (q[1] >= (1ULL<<(52+6))) {
+          q[1] >>= 6;
+          exp += 6;
+        }
+        if (q[1] >= (1ULL<<(52+3))) {
+          q[1] >>= 3;
+          exp += 3;
+        }
+        while (q[1] >= (1ULL<<53)) {
+          q[1] >>= 1;
+          exp++;
+        }
+        rval.s.man = q[1];
+      } else { // p[n-1] < (1ULL<<40)
+        if (p[n-1] >= (1ULL<<20)) {
+          if (p[n-1] >= (1ULL<<30)) {
+              // (1ULL<<30) <= p[n-1] < (1ULL<<40)
+            mpn_rshift(q,p+n-2,2,42);
+            exp -= (64-42);
+          } else {
+              // (1ULL<<20) <= p[n-1] < (1ULL<<30)
+            mpn_rshift(q,p+n-2,2,32);
+            exp -= (64-32);
+          }
+        } else { // p[n-1] < (1ULL<<20)
+          if (p[n-1] >= (1ULL<<10)) {
+              // (1ULL<<10) <= p[n-1] < (1ULL<<20)
+            mpn_rshift(q,p+n-2,2,22);
+            exp -= (64-22);
+              // q[1] == 0
+              // (1ULL<<(64+10-22=52)) <= q[0] < (1ULL<<(64+20-22=62))
+          } else {
+              // (1ULL<<0) <= p[n-1] < (1ULL<<10)
+            mpn_rshift(q,p+n-2,2,12);
+            exp -= (64-12);
+              // q[1] == 0
+              // (1ULL<<52) <= q[0] < (1ULL<<62)
+          }
+        }
+          // (1ULL<<52) <= q[0] < (1ULL<<62)
+        if (q[0] >= (1ULL<<(52+5))) {
+          q[0] >>= 5;
+          exp += 5;
+        }
+        if (q[0] >= (1ULL<<(52+3))) {
+          q[0] >>= 3;
+          exp += 3;
+        }
+        while (q[0] >= (1ULL<<53)) {
+          q[0] >>= 1;
+          exp++;
+        }
+        rval.s.man = q[0];
+      }
+    }
+  } else {
+    rval.s.man = p[n-1];
+  }
+  rval.s.exp = exp+(1024+51);
+  rval.s.sig = sign;
+  return rval.d;
+#else
+  return __gmpn_get_d(p,n,sign,exp+64+n*(-8*sizeof(*p)));
+#endif
 }
 
 //void GmpFixedPoint::assignFromInt(mp_size_t n,long int x) {

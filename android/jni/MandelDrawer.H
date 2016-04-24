@@ -144,6 +144,7 @@ public:
   float getProgress(void) const;
   void setPriorityPoint(const Vector<float,2> screen_pos);
 private:
+  void setPriorityPointPrivate(const Vector<float,2> screen_pos);
   void XYToReImPrivate(const Vector<float,2> &screen_pos,
                        Complex<FLOAT_TYPE> &re_im_pos) const;
   void fitReImPrivate(const Vector<float,2> &screen_pos,
