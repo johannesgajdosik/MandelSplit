@@ -43,6 +43,17 @@ void JuliaAVXfloat8(const float mr[8],const float mi[8],int max_n,
 
 #else
 
+#ifdef __aarch64__
+
+#define VECTOR_SIZE 2
+#define VECTOR_TYPE double
+#define JULIA_FUNC JuliaNEONdouble2
+
+void JuliaNEONdouble2(const double mr[2],const double mi[2],unsigned int max_n,
+                      unsigned int result[2]);
+
+#else
+
 #define VECTOR_SIZE 1
 #define VECTOR_TYPE double
 #define JULIA_FUNC(mr,mi,max_iter,d) d[0]=JuliaC(mr[0],mi[0],0.0,0.0,max_iter)
@@ -51,6 +62,7 @@ unsigned int JuliaC(double mr,double mi,
                     double jr,double ji,
                     unsigned int max_n);
 
+#endif
 #endif
 
 //#ifdef __cplusplus

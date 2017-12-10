@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
-    <string name="about_dialog_title">About MandelSplit</string>
+    <string name="about_dialog_title">About MandelSplit64</string>
     <string name="about_dialog_msg">
-Author and Copyright: Johannes Gajdosik, 2014\n\n
+Author and Copyright: Johannes Gajdosik, 2014,2017\n\n
 
-<b>MandelSplit</b>: A graphical visualizer for the Mandelbrot set
+<b>MandelSplit64</b>: A graphical visualizer for the Mandelbrot set
 (see <a href="http://en.wikipedia.org/wiki/Mandelbrot_set">http://en.wikipedia.org/wiki/Mandelbrot_set</a>)
 which aims to be fast and deep.\n\n
 +deep: IEEE754 64bit floating point artithmetic, maximum number of iterations &gt; 1000000.\n
-+fast: uses all processor cores, avoids recalculation and unnecessary calculation of black pixels whenever possible.\n\n
++fast: uses all processor cores, aarch64 NEON, 64bit gmp, avoids recalculation and unnecessary calculation of black pixels whenever possible.\n\n
 
 That implies it will <b><i>drain your battery</i></b>.
 By the way: <b><i>calculation will continue while the program is in the background</i></b>.\n\n
@@ -21,7 +21,6 @@ setting up the repository.\n\n
 
 Help, contributions and feedback is always welcome, especially:\n
 +Suggestions and/or design and/or code, especially for user interface\n
-+Vectorized 64bit calculation code for arm architecture - I am unsure if this is even possible\n
 +positive reviews on google play\n\n
 
 You can also tell me what additional features you would like to see, like:\n

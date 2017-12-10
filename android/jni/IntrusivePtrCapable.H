@@ -26,6 +26,35 @@
 #ifndef _INTRUSIVE_PTR_CAPABLE_H_
 #define _INTRUSIVE_PTR_CAPABLE_H_
 
+#if (__cplusplus >= 201103L)
+
+#include <atomic>
+
+class ReferenceCount {
+public:
+  ReferenceCount(void) : reference_count(0) {}
+//  int getValue(void) const {
+//    return reference_count.fetch();
+//  }
+  void retain(void) const {
+    reference_count.fetch_add(1,std::memory_order_relaxed);
+  }
+  bool release(void) const {
+    if (reference_count.fetch_sub(1, std::memory_order_release) == 1) {
+      std::atomic_thread_fence(std::memory_order_acquire);
+      return true;
+    }
+    return false;
+  }
+  bool hasJustOneReference(void) const {return (reference_count == 1);}
+private:
+  mutable std::atomic<int> reference_count;
+  ReferenceCount(const ReferenceCount&);
+  const ReferenceCount &operator=(const ReferenceCount&);
+};
+
+#else
+
 #include <boost/atomic.hpp>
 
 class ReferenceCount {
@@ -50,6 +79,8 @@ private:
   ReferenceCount(const ReferenceCount&);
   const ReferenceCount &operator=(const ReferenceCount&);
 };
+
+#endif
 
 class IntrusivePtrCapable : private ReferenceCount {
 public:

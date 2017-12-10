@@ -25,7 +25,7 @@
 #include "Mutex.H"
 
 #include <iostream>
-#include <gmpxx.h>
+//#include <gmpxx.h>
 
 class MandelDrawer {
 public:
@@ -96,7 +96,7 @@ public:
       if (nr_of_limbs == 0) return 53;
       return 24;
     } else {
-      return nr_of_limbs*(8*sizeof(mp_limb_t));
+      return nr_of_limbs*(8*sizeof(mp_limb_t))+1; // plus signbit
     }
   }
   void setMaxIter(unsigned int n) {
@@ -142,6 +142,7 @@ public:
 
   bool step(float coor[8],Parameters &p);
   float getProgress(void) const;
+  long long int fetchPixelSum(void);
   void setPriorityPoint(const Vector<float,2> screen_pos);
 private:
   void setPriorityPointPrivate(const Vector<float,2> screen_pos);

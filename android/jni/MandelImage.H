@@ -29,7 +29,7 @@
 
 #include <stdlib.h>
 
-#include <gmpxx.h>
+//#include <gmpxx.h>
 
 //static inline std::ostream &operator<<(std::ostream &o,const FLOAT_TYPE &x) {
 //  return o << x.get_d();
@@ -42,7 +42,7 @@ void PrintMpf(const mpf_t x) {
   gmp_printf("%Fg, prec=%d, size=%d, exp=%ld, limbs:",
              x,x[0]._mp_prec,x[0]._mp_size,x[0]._mp_exp);
   for (int i=0;i<x[0]._mp_size;i++) {
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
     printf(" 0x%016lx",x[0]._mp_d[i]);
 #else
     printf(" 0x%08lx",x[0]._mp_d[i]);
@@ -54,6 +54,7 @@ void PrintMpf(const mpf_t x) {
 
 class MandelImage {
 public:
+  mutable volatile long long int pixel_sum; // proper alignment
   ThreadPool &thread_pool;
   volatile _Atomic_word &terminate_flag;
   volatile _Atomic_word &nr_of_waiting_threads;
@@ -109,7 +110,7 @@ public:
   void setRecalcLimit(unsigned int l) {recalc_limit = l;}
   void setPriorityPoint(int x,int y) {priority_x = x;priority_y = y;}
   int getVectorSize(void) const {
-#ifdef __arm__
+#if defined(__arm__) || defined(__aarch64__)
     return 1;
 #endif
     return VECTOR_SIZE;
@@ -148,7 +149,7 @@ public:
     : thread_pool(thread_pool),
       terminate_flag(terminate_flag),
       nr_of_waiting_threads(nr_of_waiting_threads),
-      pixel_count(0),
+      pixel_count(0),pixel_sum(0),
       data(new unsigned int[screen_width*screen_height]),
       screen_width(screen_width),screen_height(screen_height),
       priority_x(-1),priority_y(-1),

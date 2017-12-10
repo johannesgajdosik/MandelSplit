@@ -1,20 +1,20 @@
 /*
-    Author and Copyright: Johannes Gajdosik, 2014
+    Author and Copyright: Johannes Gajdosik, 2014,2017
 
-    This file is part of MandelSplit.
+    This file is part of MandelSplit64.
 
-    MandelSplit is free software: you can redistribute it and/or modify
+    MandelSplit64 is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    MandelSplit is distributed in the hope that it will be useful,
+    MandelSplit64 is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with MandelSplit.  If not, see <http://www.gnu.org/licenses/>.
+    along with MandelSplit64.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 /*
@@ -23,7 +23,7 @@
  *
  */
 
-package gajdosik.johannes.MandelSplit;
+package gajdosik.johannes.MandelSplit64;
 
 import android.app.NativeActivity;
 import android.app.AlertDialog;

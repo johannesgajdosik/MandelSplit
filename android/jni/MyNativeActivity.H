@@ -103,6 +103,7 @@ public:
     // internal function, do not call:
   void calledFromJava(int index);
   virtual void longPressTimeout(void) {}
+  virtual void resetParams(void) {}
 protected:
   virtual void onResume(void);
   virtual void onPause(void);

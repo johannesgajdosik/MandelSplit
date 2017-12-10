@@ -18,16 +18,10 @@
 */
 
 /*
-  #if ~/android/android-ndk-r9/ndk-build -j8 NDK_DEBUG=1
-cd jni;\
-if ~/android/android-ndk-r9/ndk-build -j8 NDK_DEBUG=1
-then
-cd ..
-ant debug && adb install -r bin/MandelSplit-debug.apk && \
+
+cd jni;~/android/android-ndk-r9/ndk-build -j8 NDK_DEBUG=1;cd ..
+ant debug && adb install -r bin/MandelSplit-debug.apk
 adb logcat mandel-split:D *:S DEBUG:I
-else
-cd ..
-fi
 
 ~/android/android-ndk-r9/ndk-build -j8 && ant debug && adb install -r bin/MandelSplit-debug.apk && adb logcat mandel-split:D *:S
 
@@ -44,13 +38,44 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/tools/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.12.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.12.apk && \
-adb install -r bin/MandelSplit-0.1.12.apk
-
-
+~/android/android-sdk-linux/build-tools/23.0.1/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.13.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.13.apk && \
+adb install -r bin/MandelSplit-0.1.13.apk
 */
 
+
+/* MandelSplit64:
+
+cd jni;\
+if ~/android/android-ndk-r16/ndk-build -j8 NDK_DEBUG=1
+then
+cd ..
+ant debug && adb install -r bin/MandelSplit64-debug.apk && \
+adb logcat mandel-split:D *:S DEBUG:I
+else
+cd ..
+fi
+
+cd jni;~/android/android-ndk-r16/ndk-build -j8 NDK_DEBUG=1;cd ..
+ant debug && adb install -r bin/MandelSplit64-debug.apk
+
+Release:
+rm -r gen/* obj/* libs/* bin/*
+
+cd jni && \
+~/android/android-ndk-r16/ndk-build -j8 && \
+cd .. && \
+ant release && \
+jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+-keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
+bin/MandelSplit64-release-unsigned.apk johannes-gajdosik-google-release && \
+~/android/android-sdk-linux/build-tools/23.0.1/zipalign -f -v 4 bin/MandelSplit64-release-unsigned.apk bin/MandelSplit64-0.1.13.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit64-0.1.13.apk && \
+adb install -r bin/MandelSplit64-0.1.13.apk
+
+adb logcat | ~/android/android-ndk-r10e/ndk-stack -sym obj/local/arm64-v8a
+
+*/
 #include "MyNativeActivity.H"
 #include "MandelDrawer.H"
 #include "Semaphore.H"
@@ -340,15 +365,18 @@ private:
       if (!enable_turning) {
         if (mandel_drawer.disableRotation()) {
           //performHapticFeedback();
-          mandel_drawer.startRecalc();
         }
       }
+        // need to change info text
+      mandel_drawer.startRecalc();
+      postLoopSem();
     }
   }
   void startMouseDrag(void);
   void finishMouseDrag(void);
   void performMouseDrag(void);
   void longPressTimeout(void);
+  void resetParams(void);
   void printText(float pos_x,float pos_y,const char *text) const;
   void showMaxIterDialog(void) const;
   void setGlColors(void) const;
@@ -551,7 +579,7 @@ void MNA::showMaxIterDialog(void) const {
   if (enable_turning) {
     gmp_snprintf(text,sizeof(text),
                  "\n"
-                 "pixel: %4.2Fe; %.1f\u00b0\n"
+                 "pixel: %4.2Fe; %.1f\u00b0\n" // unicode degree sign
                  "center: %.*Ff%+.*Ffi",
                  mul_2exp(pixel_size,1).get_mpf_t(),
                  -(180.0/M_PI)*atan2(p.unity_pixel.im,
@@ -800,6 +828,19 @@ void MNA::performMouseDrag(void) {
       postLoopSem();
     }
   }
+}
+
+void MNA::resetParams(void) {
+  max_iter_slider_value = 512;
+  mandel_drawer.reset(
+    MandelDrawer::Parameters(
+      Complex<FLOAT_TYPE>(-0.375,0.0),
+      Complex<FLOAT_TYPE>(1.25/((width<height)?width:height),0.0),
+      max_iter_slider_value));
+  precision = 0;
+  new_precision = 0;
+  mandel_drawer.startRecalc();
+  postLoopSem();
 }
 
 void MNA::longPressTimeout(void) {
@@ -1149,6 +1190,7 @@ CheckGlError("main 100");
   float first_progress = 0.f;
   long long int last_now = 0;
   long long int first_now = 0;
+  double iter_per_sec = 0.0;
   
   bool first_time = true;
   while (continue_looping) {
@@ -1203,13 +1245,52 @@ CheckGlError("main 100");
 
     const float progress = mandel_drawer.getProgress();
     const long long int now = GetNow();
+
     if (enable_display_info || progress < 1.f) {
       font.prepareDrawing(width,height,GlunaticUI::mode_portrait);
 //      glEnable(GL_BLEND);
 //      glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
+      if (progress < 1.f) {
+        font.rectangle(0,height-font.getHeight(),
+                       width*progress,font.getHeight(),
+                       RGBA_TO_COLOR(128,96,32,192));
+        if (last_progress <= progress) {
+          const float d_p = progress - first_progress;
+          const long long int d_t = now - first_now;
+          if (d_t > 0) {
+            const double elapsed = 1e-6*(double)d_t;
+            iter_per_sec = mandel_drawer.fetchPixelSum() / elapsed;
+            if (d_p > 0.1f || d_t > 100000LL) {
+              const double remaining
+                = elapsed * ((double)((1.f-progress)/d_p));
+              char tmp[128];
+              snprintf(tmp,sizeof(tmp),
+                       "elapsed: %.1fs "
+                       "estimated remaining: %.1fs "
+                       "estimated total: %.1fs",
+                       elapsed,
+                       remaining,
+                       elapsed+remaining);
+              printText(10,height-font.getHeight(),tmp);
+            }
+          } else {
+            first_now = now;
+          }
+        } else {
+          first_progress = progress;
+          first_now = now;
+        }
+      }
       if (enable_display_info) {
         const float h = floorf(1.2f*font.getHeight());
         char tmp[128];
+        if (iter_per_sec > 0.0) {
+          snprintf(tmp,sizeof(tmp),
+                   "iter/sec: %.2e bits: %d",
+                   iter_per_sec,
+                   MandelDrawer::GetPrecisionBits(precision));
+          printText(10,6+3*h,tmp);
+        }
         snprintf(tmp,sizeof(tmp),"max iter: %d",
                  params.max_iter);
         printText(10,6+2*h,tmp);
@@ -1219,8 +1300,12 @@ CheckGlError("main 100");
         if (enable_turning) {
           const double pixel_angle = -(180.0/M_PI)*atan2(params.unity_pixel.im,
                                                          params.unity_pixel.re);
-          gmp_snprintf(tmp,sizeof(tmp),"display: %4.2Fex%4.2Fe; %.1f\xb0",
-                       fw.get_mpf_t(),fh.get_mpf_t(),pixel_angle);
+
+            // cannot write the degree sign into the format string like that
+            // "display: %4.2Fex%4.2Fe; %.1f\xb0"
+            // because gmp_snprintf will crash on new phones (but not on SGS2)
+          gmp_snprintf(tmp,sizeof(tmp),"display: %4.2Fex%4.2Fe; %.1f%c",
+                       fw.get_mpf_t(),fh.get_mpf_t(),pixel_angle,0xb0);
         } else {
           gmp_snprintf(tmp,sizeof(tmp),"display: %4.2Fex%4.2Fe",
                        fw.get_mpf_t(),fh.get_mpf_t());
@@ -1234,31 +1319,6 @@ CheckGlError("main 100");
                      prec+2,prec,
                      mul_2exp(params.center.im,1).get_mpf_t());
         printText(10,6,tmp);
-      }
-      if (progress < 1.f) {
-        font.rectangle(0,height-font.getHeight(),
-                       width*progress,font.getHeight(),
-                       RGBA_TO_COLOR(128,96,32,192));
-        if (last_progress <= progress) {
-          const float d_p = progress - first_progress;
-          const long long int d_t = now - first_now;
-          if (d_p > 0.1f || d_t > 1000000LL) {
-            const double elapsed = 1e-6*(double)d_t;
-            const double remaining
-              = elapsed * ((double)((1.f-progress)/d_p));
-            char tmp[128];
-            snprintf(tmp,sizeof(tmp),
-                     "elapsed: %.1fs estimated remaining: %.1fs "
-                     "estimated total: %.1fs",
-                     elapsed,
-                     remaining,
-                     elapsed+remaining);
-            printText(10,height-font.getHeight(),tmp);
-          }
-        } else {
-          first_progress = progress;
-          first_now = now;
-        }
       }
       font.finishDrawing();
       glBindTexture(GL_TEXTURE_2D,contents_texture);

@@ -210,6 +210,7 @@ bool RecalcLimitHorzLineJobDouble::execute(void) {
   int size_x = HorzLineJobDouble::size;
   int vector_count = 0;
   int count = 0;
+  long long int pixel_sum = 0;
   for (;size_x>0;size_x--,d++,x++,re_im+=image.getDReIm()) {
     if (terminate_flag) {
         // if max_iter has increased, mark remaining black pixels dirty:
@@ -243,7 +244,10 @@ bool RecalcLimitHorzLineJobDouble::execute(void) {
         vector_count = 0;
         JULIA_FUNC(mr,mi,image.getMaxIter(),tmp);
         count += VECTOR_SIZE;
-        for (int i=0;i<VECTOR_SIZE;i++) *(pos[i]) = tmp[i];
+        for (int i=0;i<VECTOR_SIZE;i++) {
+          *(pos[i]) = tmp[i];
+          pixel_sum += tmp[i];
+        }
       }
     }
   }
@@ -254,10 +258,14 @@ bool RecalcLimitHorzLineJobDouble::execute(void) {
     }
     JULIA_FUNC(mr,mi,image.getMaxIter(),tmp);
     count += vector_count;
-    for (int i=0;i<vector_count;i++) *(pos[i]) = tmp[i];
+    for (int i=0;i<vector_count;i++) {
+      *(pos[i]) = tmp[i];
+      pixel_sum += tmp[i];
+    }
   }
   exit_loop:
   __atomic_add(&image.pixel_count,count);
+  __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
   resetParent();
   return true;
 }
@@ -272,6 +280,7 @@ bool HorzLineJobDouble::execute(void) {
   int x = HorzLineJobDouble::x;
   int size_x = HorzLineJobDouble::size;
   int count = 0;
+  long long int pixel_sum = 0;
   for (;size_x>=VECTOR_SIZE;x+=VECTOR_SIZE,size_x-=VECTOR_SIZE,d+=VECTOR_SIZE) {
     if (terminate_flag) goto exit_loop;
     if (size_x > VECTOR_SIZE && image.nr_of_waiting_threads) {
@@ -295,6 +304,7 @@ bool HorzLineJobDouble::execute(void) {
     }
     JULIA_FUNC(mr,mi,image.getMaxIter(),d);
     count += VECTOR_SIZE;
+    for (int i=0;i<VECTOR_SIZE;i++) {pixel_sum += d[i];}
   }
   if (size_x > 0) {
     if (terminate_flag) goto exit_loop;
@@ -313,10 +323,12 @@ bool HorzLineJobDouble::execute(void) {
       }
 #endif
       d[i] = tmp[i];
+      pixel_sum += tmp[i];
     }
   }
   exit_loop:
   __atomic_add(&image.pixel_count,count);
+  __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
   resetParent();
   return true;
 }
@@ -403,6 +415,7 @@ bool RecalcLimitVertLineJobDouble::execute(void) {
   int size_y = VertLineJobDouble::size;
   int vector_count = 0;
   int count = 0;
+  long long int pixel_sum = 0;
   for (;size_y>0;
        size_y--,d+=image.getScreenWidth(),y++,
        re_im+=image.getDReIm().cross()) {
@@ -438,7 +451,10 @@ bool RecalcLimitVertLineJobDouble::execute(void) {
         vector_count = 0;
         JULIA_FUNC(mr,mi,image.getMaxIter(),tmp);
         count += VECTOR_SIZE;
-        for (int i=0;i<VECTOR_SIZE;i++) *(pos[i]) = tmp[i];
+        for (int i=0;i<VECTOR_SIZE;i++) {
+          *(pos[i]) = tmp[i];
+          pixel_sum += tmp[i];
+        }
       }
     }
   }
@@ -449,10 +465,14 @@ bool RecalcLimitVertLineJobDouble::execute(void) {
     }
     JULIA_FUNC(mr,mi,image.getMaxIter(),tmp);
     count += vector_count;
-    for (int i=0;i<vector_count;i++) *(pos[i]) = tmp[i];
+    for (int i=0;i<vector_count;i++) {
+      *(pos[i]) = tmp[i];
+      pixel_sum += tmp[i];
+    }
   }
-  __atomic_add(&image.pixel_count,count);
   exit_loop:
+  __atomic_add(&image.pixel_count,count);
+  __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
   resetParent();
   return true;
 }
@@ -467,6 +487,7 @@ bool VertLineJobDouble::execute(void) {
   unsigned int *d = VertLineJobDouble::d;
   int size_y = VertLineJobDouble::size;
   int count = 0;
+  long long int pixel_sum = 0;
   for (int y=VertLineJobDouble::y;size_y>VECTOR_SIZE;
        y+=VECTOR_SIZE,size_y-=VECTOR_SIZE) {
     if (terminate_flag) goto exit_loop;
@@ -492,6 +513,7 @@ bool VertLineJobDouble::execute(void) {
     count += VECTOR_SIZE;
     for (int j=0;j<VECTOR_SIZE;j++,d+=image.getScreenWidth()) {
       *d = tmp[j];
+      pixel_sum += tmp[j];
     }
   }
   if (terminate_flag) goto exit_loop;
@@ -503,9 +525,11 @@ bool VertLineJobDouble::execute(void) {
   count += size_y;
   for (int j=0;j<size_y;j++,d+=image.getScreenWidth()) {
     *d = tmp[j];
+    pixel_sum += tmp[j];
   }
-  __atomic_add(&image.pixel_count,count);
   exit_loop:
+  __atomic_add(&image.pixel_count,count);
+  __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
   resetParent();
 //cout << "VertLineJobDouble(" << VertLineJobDouble::x << ',' << VertLineJobDouble::y
 //     << ")::execute end" << endl;
@@ -627,6 +651,7 @@ bool RecalcLimitHorzLineJobGmp::execute(void) {
   int x = HorzLineJobGmp::x;
   int size_x = HorzLineJobGmp::size;
   int count = 0;
+  long long int pixel_sum = 0;
   for (;;) {
     if (terminate_flag) {
         // if max_iter has increased, mark remaining black pixels dirty:
@@ -658,6 +683,7 @@ bool RecalcLimitHorzLineJobGmp::execute(void) {
       // process pixel at (re_im)=(x,y)=*d
     if (image.needRecalc(*d)) {
       *d = GmpFixedPoint::GmpMandel2(re,im,image.getMaxIter());
+      pixel_sum += *d;
       count++;
     }
     size_x--;
@@ -668,6 +694,7 @@ bool RecalcLimitHorzLineJobGmp::execute(void) {
     im.add2(image.getDIm());
   }
   __atomic_add(&image.pixel_count,count);
+  __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
   resetParent();
   return true;
 }
@@ -677,6 +704,7 @@ bool HorzLineJobGmp::execute(void) {
   int x = HorzLineJobGmp::x;
   int size_x = HorzLineJobGmp::size;
   int count = 0;
+  long long int pixel_sum = 0;
 //      cout << "HorzLineJobGmp::execute: start" << endl;
   while (!terminate_flag) {
 //      cout << "HorzLineJobGmp::execute: 100" << endl;
@@ -708,6 +736,7 @@ bool HorzLineJobGmp::execute(void) {
 #endif
 //      cout << "HorzLineJobGmp::execute: 300" << endl;
     *d = GmpFixedPoint::GmpMandel2(re,im,image.getMaxIter());
+    pixel_sum += *d;
 //      cout << "HorzLineJobGmp::execute: 301" << endl;
     count++;
     size_x--;
@@ -719,6 +748,7 @@ bool HorzLineJobGmp::execute(void) {
 //      cout << "HorzLineJobGmp::execute: 399" << endl;
   }
   __atomic_add(&image.pixel_count,count);
+  __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
   resetParent();
 //      cout << "HorzLineJobGmp::execute: end" << endl;
   return true;
@@ -827,6 +857,7 @@ bool RecalcLimitVertLineJobGmp::execute(void) {
   int y = VertLineJobGmp::y;
   int size_y = VertLineJobGmp::size;
   int count = 0;
+  long long int pixel_sum = 0;
   for (;;) {
     if (terminate_flag) {
         // if max_iter has increased, mark remaining black pixels dirty:
@@ -859,6 +890,7 @@ bool RecalcLimitVertLineJobGmp::execute(void) {
       // process pixel at (re_im)=(x,y)=*d
     if (image.needRecalc(*d)) {
       *d = GmpFixedPoint::GmpMandel2(re,im,image.getMaxIter());
+      pixel_sum += *d;
       count++;
     }
     size_y--;
@@ -869,6 +901,7 @@ bool RecalcLimitVertLineJobGmp::execute(void) {
     im.add2(image.getDRe());
   }
   __atomic_add(&image.pixel_count,count);
+  __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
   resetParent();
   return true;
 }
@@ -878,6 +911,7 @@ bool VertLineJobGmp::execute(void) {
   int y = VertLineJobGmp::y;
   int size_y = VertLineJobGmp::size;
   int count = 0;
+  long long int pixel_sum = 0;
 //      cout << "VertLineJobGmp::execute: start" << endl;
   while (!terminate_flag) {
 //      cout << "VertLineJobGmp::execute: 100; " << size_y << endl;
@@ -910,6 +944,7 @@ bool VertLineJobGmp::execute(void) {
 #endif
 //      cout << "VertLineJobGmp::execute: 300" << endl;
     *d = GmpFixedPoint::GmpMandel2(re,im,image.getMaxIter());
+    pixel_sum += *d;
 //      cout << "VertLineJobGmp::execute: 301" << endl;
     count++;
     size_y--;
@@ -921,6 +956,7 @@ bool VertLineJobGmp::execute(void) {
 //      cout << "VertLineJobGmp::execute: 399" << endl;
   }
   __atomic_add(&image.pixel_count,count);
+  __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
   resetParent();
 //      cout << "VertLineJobGmp::execute: end" << endl;
   return true;
@@ -1008,6 +1044,7 @@ private:
   }
   bool execute(void) {
     int count = 0;
+    long long int pixel_sum = 0;
     unsigned int *d = image.getData() + y*image.getScreenWidth() + x;
     for (int j=size_y;j>0;j--,d+=image.getScreenWidth()) {
       for (int i=0;i<size_x;i++) {
@@ -1022,6 +1059,7 @@ private:
       }
     }
     __atomic_add(&image.pixel_count,count);
+    __sync_fetch_and_add(&(image.pixel_sum),pixel_sum);
     resetParent();
     return true;
   }
@@ -1477,7 +1515,6 @@ void EntireImageJob::firstStageFinished(void) {
 FreeList EntireImageJob::free_list;
 
 
-
 class SearchInsideJob : public ChildJob {
 public:
   static SearchInsideJob *create(Job *parent,
@@ -1523,10 +1560,14 @@ private:
 };
 
 bool SearchInsideJob::execute(void) {
-  struct Max
+//  struct Max
 }
 
-
+void SearchInsideJob::firstStageFinished(void) {
+  image.thread_pool.queueJob(
+                      EntireImageJob
+                        ::create(this,image,size_x,size_y));
+}
 
 
 MainJob::MainJob(const MandelImage &image,int size_x,int size_y)
@@ -1549,10 +1590,10 @@ bool MainJob::execute(void) {
     memset(d,0,sizeof(unsigned int)*size_x);
   }
 #endif
-  if (image.getPrecision() <= 0) {
+  if (true || image.getPrecision() <= 0) {
     image.thread_pool.queueJob(EntireImageJob::create(this,image,size_x,size_y));
   } else {
-    image.thread_pool.queueJob(EntireImageJob::create(this,image,size_x,size_y));
+    image.thread_pool.queueJob(SearchInsideJob::create(this,image,size_x,size_y));
   }
 //  cout << "MainJob::execute finished" << endl;
   return false;

@@ -393,17 +393,15 @@ int MandelDrawer::fitReIm(const Vector<float,2> &screen_pos0,
 
 bool MandelDrawer::disableRotation(void) {
   MutexLock lock(mutex);
-  if (image->getPrecision() <= 0) {
-    if (params.unity_pixel.im != zero ||
-        params.unity_pixel.re < zero) {
-      params.unity_pixel.re = sqrt(params.unity_pixel.length2());
-//      params.unity_pixel.im = zero.copy();
-      params.unity_pixel.im = zero;
-      unity_pixel_changed = true;
-      return true;
-    }
+  if (params.unity_pixel.im != zero ||
+      params.unity_pixel.re < zero) {
+    params.unity_pixel.re = sqrt(params.unity_pixel.length2());
+//    params.unity_pixel.im = zero.copy();
+    params.unity_pixel.im = zero;
+    unity_pixel_changed = true;
+    return true;
   }
-  return true;
+  return false;
 }
 
 void MandelDrawer::getOpenGLScreenCoordinate(unsigned int i,unsigned int j,
@@ -501,6 +499,11 @@ float MandelDrawer::getProgress(void) const {
   return image->pixel_count / (float)(width*height);
 }
 
+long long int MandelDrawer::fetchPixelSum(void) {
+  const long long int rval = image->pixel_sum;
+  return rval;
+}
+
 bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
 //cout << "step: start" << endl;
   bool rval = true;
@@ -509,7 +512,7 @@ bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
 
     threads->cancelExecution();
     image->pixel_count = 0;
-
+    image->pixel_sum = 0;
     mutex.lock();
     params_copy = params;
     if (image->getPrecision() != params.precision) {
@@ -664,7 +667,7 @@ bool MandelDrawer::step(float coor[8],Parameters &params_copy) {
   return rval;
 }
 
-
+/*
 std::ostream &operator<<(std::ostream &o,
                          const MandelDrawer::Parameters &p) {
   const std::streamsize last_prec = o.precision();
@@ -681,6 +684,7 @@ std::ostream &operator<<(std::ostream &o,
   o << ',' << p.max_iter << ']';
   return o;
 }
+*/
 
 /*
 TODO

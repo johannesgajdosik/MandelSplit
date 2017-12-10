@@ -84,7 +84,7 @@ public:
   }
   bool wait(long long int end_time) {
     struct timespec abs_timeout = {
-      tv_sec: end_time/1000000LL,
+      tv_sec: (time_t)(end_time/1000000LL),
       tv_nsec: 1000*((long)(end_time%1000000LL))
     };
 //      cannot happen because end_time > 0=1970.01.01

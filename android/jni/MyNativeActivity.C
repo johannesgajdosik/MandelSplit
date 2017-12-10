@@ -26,6 +26,7 @@
 
 
 #include <stdlib.h>
+#include <string.h>
 #include <errno.h>
 
 void MyNativeActivity::callJavaFinish(void) {
@@ -534,8 +535,13 @@ void ReportErrorToUser(const char *text) {
 
 extern "C" {
 
-JNIEXPORT jint JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_minimizeMaxIter(
-                         JNIEnv *env,jobject obj) {
+JNIEXPORT jint JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_minimizeMaxIter
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_minimizeMaxIter
+#endif
+    (JNIEnv *env,jobject obj) {
   if (static_my_native_activity)
     return static_my_native_activity->minimizeMaxIter();
   else
@@ -544,60 +550,104 @@ JNIEXPORT jint JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_minim
 //       << x << endl;
 }
 
-JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged(
-                         JNIEnv *env,jobject obj,
-                         jint x) {
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_maxIterChanged
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged
+#endif
+    (JNIEnv *env,jobject obj,jint x) {
   if (static_my_native_activity)
     static_my_native_activity->maxIterChanged(x);
 //  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged: "
 //       << x << endl;
 }
 
-JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterStartStop(
-                         JNIEnv *env,jobject obj,
-                         jint start_stop) {
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_maxIterStartStop
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterStartStop
+#endif
+    (JNIEnv *env,jobject obj,jint start_stop) {
   if (static_my_native_activity)
     static_my_native_activity->maxIterStartStop(start_stop);
-//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged: "
-//       << x << endl;
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterStartStop: "
+//       << start_stop << endl;
 }
 
-JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_setColorPalette(
-                         JNIEnv *env,jobject obj,
-                         jint color_palette) {
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_setColorPalette
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_setColorPalette
+#endif
+    (JNIEnv *env,jobject obj,jint color_palette) {
   if (static_my_native_activity)
     static_my_native_activity->setColorPalette(color_palette);
 }
 
-JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_displayInfo(
-                         JNIEnv *env,jobject obj,
-                         jboolean enable) {
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_displayInfo
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_displayInfo
+#endif
+    (JNIEnv *env,jobject obj,jboolean enable) {
   if (static_my_native_activity)
     static_my_native_activity->displayInfo(enable);
 }
 
-JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_enableTurning(
-                         JNIEnv *env,jobject obj,
-                         jboolean enable) {
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_enableTurning
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_enableTurning
+#endif
+    (JNIEnv *env,jobject obj,jboolean enable) {
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_enableTurning: "
+//       << (enable?'T':'F') << endl;
   if (static_my_native_activity)
     static_my_native_activity->enableTurning(enable);
 }
 
-JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_calledFromJava(
-                         JNIEnv *env,jobject obj,
-                         jint user_data) {
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_calledFromJava
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_calledFromJava
+#endif
+    (JNIEnv *env,jobject obj,jint user_data) {
 //  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_calledFromJava: "
 //       << user_data << endl;
   if (static_my_native_activity)
     static_my_native_activity->calledFromJava(user_data);
 }
 
-JNIEXPORT void JNICALL Java_gajdosik_johannes_MandelSplit_MyNativeActivity_longPressTimeout(
-                         JNIEnv *env,jobject obj) {
-//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_calledFromJava: "
-//       << user_data << endl;
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_longPressTimeout
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_longPressTimeout
+#endif
+    (JNIEnv *env,jobject obj) {
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_longPressTimeout"
+//       << endl;
   if (static_my_native_activity)
     static_my_native_activity->longPressTimeout();
+}
+
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_resetParams
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_resetParams
+#endif
+    (JNIEnv *env,jobject obj) {
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_resetParams"
+//       << endl;
+  if (static_my_native_activity)
+    static_my_native_activity->resetParams();
 }
 
 }

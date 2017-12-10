@@ -85,6 +85,86 @@ mi = _mm256_add_ps(mi,mi);
 
 #else
 
+#ifdef __aarch64__
+#include <arm_neon.h>
+
+void JuliaNEONdouble2(const double _mr[2],const double _mi[2],unsigned int max_n,
+                      unsigned int result[2]) {
+  float64x2_t mr = vld1q_f64(_mr);
+mr = vaddq_f64(mr,mr);
+  float64x2_t mi = vld1q_f64(_mi);
+mi = vaddq_f64(mi,mi);
+  float64x2_t jr = vsubq_f64(mr,mr);
+  float64x2_t ji = jr;
+  const uint64x2_t max = vdupq_n_u64(max_n);
+  uint64x2_t count = veorq_u64(max,max);
+  const const float64x2_t four = vdupq_n_f64(4.0);
+  uint64x2_t continue_loop = vdupq_n_s64(-1);
+  float64x2_t rq = vmulq_f64(jr,jr);
+  float64x2_t iq = vmulq_f64(ji,ji);
+  bool cont_loop = true;
+  do {
+    continue_loop = vandq_u64(continue_loop,vcltq_f64(vaddq_f64(rq,iq),four));
+      // moving the result of SIMD calculation to
+      // general purpose regs takes some time.
+      // Therefore assign finish_loop here and read later:
+//      continue_loop = ((vgetq_lane_u32(continue_loop,0) | vgetq_lane_u32(continue_loop,2)));
+    count = vsubq_u64(count,continue_loop);
+    continue_loop = vandq_u64(continue_loop,vcltq_u64(count,max));
+    cont_loop = vget_lane_u32(vorr_u32(vget_low_u32(continue_loop),
+                                       vget_high_u32(continue_loop)),0);
+    ji = vmulq_f64(ji,jr);
+    ji = vaddq_f64(mi,vaddq_f64(ji,ji));
+    jr = vaddq_f64(mr,vsubq_f64(rq,iq));
+    rq = vmulq_f64(jr,jr);
+    iq = vmulq_f64(ji,ji);
+
+// loop unrooling: do it again
+
+    continue_loop = vandq_u64(continue_loop,vcltq_f64(vaddq_f64(rq,iq),four));
+    count = vsubq_u64(count,continue_loop);
+    continue_loop = vandq_u64(continue_loop,vcltq_u64(count,max));
+      
+      
+    ji = vmulq_f64(ji,jr);
+    ji = vaddq_f64(mi,vaddq_f64(ji,ji));
+    jr = vaddq_f64(mr,vsubq_f64(rq,iq));
+    
+    rq = vmulq_f64(jr,jr);
+    iq = vmulq_f64(ji,ji);
+
+/*
+    continue_loop = vandq_u64(continue_loop,vcltq_f64(vaddq_f64(rq,iq),four));
+    continue_loop = vandq_u64(continue_loop,vcltq_u64(count,max));
+    count = vsubq_u64(count,continue_loop);
+      
+      
+    ji = vmulq_f64(ji,jr);
+    ji = vaddq_f64(mi,vaddq_f64(ji,ji));
+    jr = vaddq_f64(mr,vsubq_f64(rq,iq));
+    
+    rq = vmulq_f64(jr,jr);
+    iq = vmulq_f64(ji,ji);
+*/
+  } while (cont_loop);
+
+//  count = vminq_u32(max,count); // not necessary
+  
+    // vget_low_u32 just gets the lower quadword.
+    // Not the lower int of the lower and higher quadwords.
+
+//    vst1_u32 seems to store one quadword:
+//  vst1_u32(result,vget_low_u32(count)); is the same as
+//  *((uint32x2_t*)(&(result[0]))) = vget_low_u32(count);
+
+//  result[0] = count[0];
+//  result[1] = count[1];
+    // same as above:
+  result[0] = vgetq_lane_u32(count,0);
+  result[1] = vgetq_lane_u32(count,2);
+}
+
+#else
 unsigned int JuliaC(double mr,double mi,
                     double jr,double ji,
                     unsigned int max_n) {
@@ -106,4 +186,5 @@ ji *= 2.0;
 //  return (0x10000*n+(max_n/2))/max_n;
 }
 
+#endif
 #endif

@@ -239,11 +239,16 @@ GmpFloat floor(const GmpFloat &a) {
 
 static inline
 std::ostream &operator<<(std::ostream &o,const GmpFloat &x) {
-  const std::streamsize last_prec = o.precision();
-  o.precision((int)floor(x._mp_prec*sizeof(mp_limb_t)*2.40823996531185+1.0) );
-  o << static_cast<const __mpf_struct*>(&x);
-  o.precision(last_prec);
-  return o;
+//  const std::streamsize last_prec = o.precision();
+//  o.precision((int)floor(x._mp_prec*sizeof(mp_limb_t)*2.40823996531185+1.0) );
+//  o << static_cast<const __mpf_struct*>(&x);
+//  o.precision(last_prec);
+  const int prec = (int)floor(x._mp_prec*sizeof(mp_limb_t)*2.40823996531185+1.0);
+  char text[2048];
+  gmp_snprintf(text,sizeof(text),
+               "%.*Ff",
+               prec,mul_2exp(x,1).get_mpf_t());
+  return o << text;
 }
 
 static inline

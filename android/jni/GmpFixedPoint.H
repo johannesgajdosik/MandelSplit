@@ -29,7 +29,7 @@
 #include "Mutex.H"
 
 #include <gmp.h>
-#include <gmpxx.h>
+//#include <gmpxx.h>
 #include <alloca.h>
 
 #include <iostream>
@@ -93,7 +93,8 @@ public:
     while (0 == h._mp_d[0]) {
       h._mp_size--;
       if (0 == h._mp_size) {
-        h._mp_exp == 0;
+//TODO:WHATS THIS?        h._mp_exp == 0;
+        h._mp_exp = 0;
         return FLOAT_TYPE(&h);
       }
       h._mp_d++;
