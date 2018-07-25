@@ -38,9 +38,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/build-tools/23.0.1/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.13.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.13.apk && \
-adb install -r bin/MandelSplit-0.1.13.apk
+~/android/android-sdk-linux/build-tools/23.0.1/zipalign -f -v 4 bin/MandelSplit-release-unsigned.apk bin/MandelSplit-0.1.14.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit-0.1.14.apk && \
+adb install -r bin/MandelSplit-0.1.14.apk
 */
 
 
@@ -69,9 +69,9 @@ ant release && \
 jarsigner -storepass cygrks5j -verbose -sigalg SHA1withRSA -digestalg SHA1 \
 -keystore ~/glunatic/glunatic/google_key/johannes-gajdosik-release-key.keystore \
 bin/MandelSplit64-release-unsigned.apk johannes-gajdosik-google-release && \
-~/android/android-sdk-linux/build-tools/23.0.1/zipalign -f -v 4 bin/MandelSplit64-release-unsigned.apk bin/MandelSplit64-0.1.13.apk && \
-~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit64-0.1.13.apk && \
-adb install -r bin/MandelSplit64-0.1.13.apk
+~/android/android-sdk-linux/build-tools/23.0.1/zipalign -f -v 4 bin/MandelSplit64-release-unsigned.apk bin/MandelSplit64-0.1.14.apk && \
+~/android/android-sdk-linux/build-tools/17.0.0/aapt dump badging bin/MandelSplit64-0.1.14.apk && \
+adb install -r bin/MandelSplit64-0.1.14.apk
 
 adb logcat | ~/android/android-ndk-r10e/ndk-stack -sym obj/local/arm64-v8a
 
@@ -672,8 +672,9 @@ int32_t MNA::onInputEvent(AInputEvent *event) {
               startMouseDrag();
             }
             tap_start_time = long_press_start_time = 0;
+            enable_long_press = false;
             draw_once = true;
-//            cout << "no tap because of second pointer" << endl;
+//            cout << "no tap or long press because of second pointer" << endl;
           } else {
               // tap start with 1st finger
             pointer_id[0] = p_id;

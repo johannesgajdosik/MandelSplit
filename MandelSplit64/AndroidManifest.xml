@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
       package="gajdosik.johannes.MandelSplit64"
-      android:versionCode="13"
-      android:versionName="0.1.13">
+      android:versionCode="14"
+      android:versionName="0.1.14">
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="21" />
     <uses-feature android:glEsVersion="0x00020000" />
     <uses-feature android:name="android.hardware.touchscreen.multitouch.distinct" />

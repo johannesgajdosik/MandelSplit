@@ -92,6 +92,7 @@ public:
   void setSystemUiVisibility(int visibility);
   void addWindowFlags(int flags);
   virtual int minimizeMaxIter(void) {return 8;}
+  virtual void showMaxIterDialog(void) const {}
   virtual void maxIterChanged(int x) {}
   virtual void maxIterStartStop(int start_stop) {}
   virtual void setColorPalette(int color_palette) {}

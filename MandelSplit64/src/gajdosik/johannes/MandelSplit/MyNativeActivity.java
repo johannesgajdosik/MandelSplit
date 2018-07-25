@@ -410,6 +410,13 @@ public class MyNativeActivity extends NativeActivity {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {}
                   });
+        builder.setNeutralButton("Menu",
+                  new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                      MyNativeActivity.showMaxIterDialog();
+                    }
+                  });
         AlertDialog dialog = builder.create();
         dialog.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         dialog.show();
@@ -494,6 +501,7 @@ public class MyNativeActivity extends NativeActivity {
     System.loadLibrary("mandel-split");
   }
   public static native int minimizeMaxIter();
+  public static native void showMaxIterDialog();
   public static native void maxIterChanged(int x);
   public static native void maxIterStartStop(int start_stop);
   public static native void setColorPalette(int color_palette);

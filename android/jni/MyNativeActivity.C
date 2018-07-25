@@ -546,8 +546,21 @@ JNIEXPORT jint JNICALL
     return static_my_native_activity->minimizeMaxIter();
   else
     return 8;
-//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged: "
-//       << x << endl;
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_maxIterChanged"
+//       << endl;
+}
+
+JNIEXPORT void JNICALL
+#ifdef __aarch64__
+  Java_gajdosik_johannes_MandelSplit64_MyNativeActivity_showMaxIterDialog
+#else
+  Java_gajdosik_johannes_MandelSplit_MyNativeActivity_showMaxIterDialog
+#endif
+    (JNIEnv *env,jobject obj) {
+  if (static_my_native_activity)
+    static_my_native_activity->showMaxIterDialog();
+//  cout << "Java_gajdosik_johannes_MandelSplit_MyNativeActivity_showMaxIterDialog"
+//       << endl;
 }
 
 JNIEXPORT void JNICALL
